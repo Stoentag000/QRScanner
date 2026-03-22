@@ -1,6 +1,7 @@
 # 🔍 QRScanner
 
 一款纯 Swift 编写的 macOS 菜单栏 QR 码 / 条形码扫描器，采用毛玻璃设计语言，常驻菜单栏，点击即用。
+⚠️该程序由Xiaomi MiMo Claw编写
 
 ## 简介
 
