@@ -2,13 +2,14 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject var history: ScanHistory
+    @ObservedObject var settings: AppSettings
     var onBack: () -> Void = {}
     @State private var copiedId: UUID?
 
     var body: some View {
         ZStack {
-            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.background)
 
             VStack(spacing: 0) {
                 // Header
@@ -21,7 +22,6 @@ struct HistoryView: View {
                 }
             }
         }
-        .environment(\.colorScheme, .dark)
         .frame(width: 380, height: 480)
     }
 
@@ -32,22 +32,22 @@ struct HistoryView: View {
             Button(action: { onBack() }) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.5))
+                    .foregroundStyle(.secondary)
                     .frame(width: 24, height: 24)
-                    .background(.white.opacity(0.1), in: Circle())
+                    .background(.quaternary, in: Circle())
             }
             .buttonStyle(.plain)
 
             Text("扫描历史")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.primary)
 
             Text("\(history.entries.count)")
                 .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(0.35))
+                .foregroundStyle(.tertiary)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(.white.opacity(0.08), in: Capsule())
+                .background(.quaternary, in: Capsule())
 
             Spacer()
 
@@ -55,7 +55,7 @@ struct HistoryView: View {
                 Button(action: { history.clearAll() }) {
                     Text("清空")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(.red.opacity(0.7))
+                        .foregroundStyle(.red)
                 }
                 .buttonStyle(.plain)
             }
@@ -72,10 +72,10 @@ struct HistoryView: View {
             Spacer()
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 36))
-                .foregroundStyle(.white.opacity(0.15))
+                .foregroundStyle(.tertiary)
             Text("暂无扫描记录")
                 .font(.system(size: 12, design: .rounded))
-                .foregroundStyle(.white.opacity(0.35))
+                .foregroundStyle(.tertiary)
             Spacer()
         }
     }
@@ -99,18 +99,18 @@ struct HistoryView: View {
             // Source icon
             Image(systemName: entry.source == .camera ? "camera.fill" : "photo.fill")
                 .font(.system(size: 11))
-                .foregroundStyle(.cyan.opacity(0.5))
+                .foregroundStyle(Color.accentColor.opacity(0.5))
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.content)
                     .font(.system(size: 11, design: .monospaced))
                     .lineLimit(2)
-                    .foregroundStyle(.white.opacity(0.85))
+                    .foregroundStyle(.primary)
 
                 Text(formatTime(entry.timestamp))
                     .font(.system(size: 9, design: .rounded))
-                    .foregroundStyle(.white.opacity(0.3))
+                    .foregroundStyle(.tertiary)
             }
 
             Spacer()
@@ -119,9 +119,9 @@ struct HistoryView: View {
             Button(action: { copyEntry(entry) }) {
                 Image(systemName: copiedId == entry.id ? "checkmark" : "doc.on.clipboard")
                     .font(.system(size: 11))
-                    .foregroundStyle(copiedId == entry.id ? .green.opacity(0.8) : .white.opacity(0.35))
+                    .foregroundStyle(copiedId == entry.id ? Color.green : Color.primary.opacity(0.3))
                     .frame(width: 28, height: 28)
-                    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
 
@@ -129,15 +129,15 @@ struct HistoryView: View {
             Button(action: { history.remove(entry) }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(.white.opacity(0.2))
+                    .foregroundStyle(.tertiary)
                     .frame(width: 28, height: 28)
-                    .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 6))
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 8)
-        .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     // MARK: - Helpers

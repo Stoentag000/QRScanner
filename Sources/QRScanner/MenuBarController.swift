@@ -56,6 +56,13 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
     private func showPopover(with view: some View) {
         let contentVC = NSHostingController(rootView: view)
+        if let scheme = settings.theme.colorScheme {
+            contentVC.view.appearance = scheme == .dark
+                ? NSAppearance(named: .darkAqua)
+                : NSAppearance(named: .aqua)
+        } else {
+            contentVC.view.appearance = nil
+        }
 
         let popover = NSPopover()
         popover.contentSize = NSSize(width: 380, height: 500)
@@ -123,12 +130,10 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
         let contentVC = NSHostingController(rootView: settingsView)
         let window = NSWindow(contentViewController: contentVC)
-        window.title = ""
+        window.title = "QRScanner 设置"
         window.setContentSize(NSSize(width: 580, height: 420))
         window.minSize = NSSize(width: 500, height: 360)
-        window.styleMask = [.titled, .closable, .fullSizeContentView, .resizable]
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
+        window.styleMask = [.titled, .closable, .resizable]
         window.isReleasedWhenClosed = false
         window.delegate = self
 
@@ -146,7 +151,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         cleanupScanner()
         popover?.close()
 
-        let historyView = HistoryView(history: history) { [weak self] in
+        let historyView = HistoryView(history: history, settings: settings) { [weak self] in
             self?.reopenScanner()
         }
         showPopover(with: historyView)

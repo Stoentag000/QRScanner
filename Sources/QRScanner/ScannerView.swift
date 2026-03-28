@@ -34,9 +34,9 @@ struct ScannerView: View {
 
     var body: some View {
         ZStack {
-            // Frosted glass background
-            VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            // Solid background
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(.background)
 
             VStack(spacing: 0) {
                 // Header
@@ -61,14 +61,9 @@ struct ScannerView: View {
                     .padding(.top, 12)
             }
         }
-        .environment(\.colorScheme, .dark)
         .frame(width: 380, height: isCameraMode ? 500 : 460)
         .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
-            if isCameraMode {
-                isCameraMode = false
-                cameraScanner.stopRunning()
-            }
-            return handleDrop(providers: providers)
+            handleDrop(providers: providers)
         }
         .onChange(of: cameraScanner.lastDetectedCode) { _, newValue in
             guard let code = newValue else { return }
@@ -105,7 +100,7 @@ struct ScannerView: View {
                 }
             }
         }
-        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     private func modeButton(_ title: String, icon: String, active: Bool, action: @escaping () -> Void) -> some View {
@@ -116,11 +111,11 @@ struct ScannerView: View {
                 Text(title)
                     .font(.system(size: 11, weight: .medium, design: .rounded))
             }
-            .foregroundStyle(active ? .white : .white.opacity(0.4))
+            .foregroundStyle(active ? .primary : .secondary)
             .padding(.horizontal, 16)
             .padding(.vertical, 6)
             .background(
-                active ? AnyShapeStyle(.white.opacity(0.15)) : AnyShapeStyle(.clear),
+                active ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.clear),
                 in: RoundedRectangle(cornerRadius: 8, style: .continuous)
             )
         }
@@ -166,7 +161,7 @@ struct ScannerView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .strokeBorder(.white.opacity(0.1), lineWidth: 0.5)
+                                    .strokeBorder(.separator, lineWidth: 0.5)
                             )
 
                         // Detected codes list
@@ -180,10 +175,10 @@ struct ScannerView: View {
                             VStack(spacing: 6) {
                                 Image(systemName: "exclamationmark.triangle")
                                     .font(.system(size: 20))
-                                    .foregroundStyle(.yellow.opacity(0.7))
+                                    .foregroundStyle(.secondary)
                                 Text("未检测到二维码")
                                     .font(.system(size: 11, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.5))
+                                    .foregroundStyle(.tertiary)
                             }
                             .padding(.vertical, 20)
                         }
@@ -196,10 +191,10 @@ struct ScannerView: View {
                                 Text("重新选择")
                                     .font(.system(size: 10, weight: .medium, design: .rounded))
                             }
-                            .foregroundStyle(.white.opacity(0.6))
+                            .foregroundStyle(.secondary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 5)
-                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
                         }
                         .buttonStyle(.plain)
                     }
@@ -209,7 +204,7 @@ struct ScannerView: View {
                     .overlay {
                         if isDragging {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(.cyan.opacity(0.5), lineWidth: 2)
+                                .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 2)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -238,23 +233,23 @@ struct ScannerView: View {
         VStack(spacing: 14) {
             Image(systemName: "square.and.arrow.down")
                 .font(.system(size: 36))
-                .foregroundStyle(.cyan.opacity(0.8))
+                .foregroundStyle(Color.accentColor.opacity(0.8))
 
             VStack(spacing: 4) {
                 Text("放开以识别图片")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundStyle(.cyan.opacity(0.7))
+                    .foregroundStyle(Color.accentColor.opacity(0.7))
                 Text("支持 PNG / JPG / TIFF / GIF")
                     .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.cyan.opacity(0.4))
+                    .foregroundStyle(Color.accentColor.opacity(0.4))
             }
         }
         .frame(maxWidth: .infinity)
         .frame(height: 300)
-        .background(.cyan.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.accentColor.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.cyan.opacity(0.5), lineWidth: 2, antialiased: true)
+                .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 2, antialiased: true)
         )
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -271,26 +266,26 @@ struct ScannerView: View {
             VStack(spacing: 14) {
                 Image(systemName: "square.and.arrow.down.on.square")
                     .font(.system(size: 36))
-                    .foregroundStyle(.white.opacity(0.25))
+                    .foregroundStyle(.tertiary)
 
                 VStack(spacing: 4) {
                     Text("点击或拖拽图片到此处")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.secondary)
                     Text("支持 PNG / JPG / TIFF / GIF")
                         .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(.white.opacity(0.3))
+                        .foregroundStyle(.tertiary)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(
                         style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]),
                         antialiased: true
                     )
-                    .foregroundStyle(.white.opacity(0.1))
+                    .foregroundStyle(.secondary)
             )
         }
         .buttonStyle(.plain)
@@ -306,12 +301,12 @@ struct ScannerView: View {
         HStack(spacing: 8) {
             Image(systemName: "qrcode")
                 .font(.system(size: 12))
-                .foregroundStyle(.cyan.opacity(0.7))
+                .foregroundStyle(Color.accentColor.opacity(0.7))
 
             Text(code)
                 .font(.system(size: 11, design: .monospaced))
                 .lineLimit(2)
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.primary)
 
             Spacer()
 
@@ -320,16 +315,16 @@ struct ScannerView: View {
             }) {
                 Image(systemName: "doc.on.clipboard")
                     .font(.system(size: 11))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
+                .strokeBorder(.separator, lineWidth: 0.5)
         )
     }
 
@@ -359,19 +354,15 @@ struct ScannerView: View {
         }
     }
 
-    private func handleFileImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
-            guard let url = urls.first else { return }
-            loadImage(from: url)
-        case .failure:
-            break
+    // MARK: - Unified Image Import
+
+    /// Single entry point: switch to image mode, load the file, detect codes.
+    private func importImage(from url: URL) {
+        if isCameraMode {
+            isCameraMode = false
+            cameraScanner.stopRunning()
         }
-    }
 
-    // MARK: - Shared Image Processing
-
-    private func loadImage(from url: URL) {
         guard url.startAccessingSecurityScopedResource() else { return }
         defer { url.stopAccessingSecurityScopedResource() }
 
@@ -393,14 +384,21 @@ struct ScannerView: View {
         }
     }
 
+    /// fileImporter callback — extracts URL and forwards to importImage.
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        if case .success(let urls) = result, let url = urls.first {
+            importImage(from: url)
+        }
+    }
+
+    /// onDrop callback — parses NSItemProvider, forwards to importImage.
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
-
         provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
             guard let data = item as? Data,
                   let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
             DispatchQueue.main.async {
-                self.loadImage(from: url)
+                self.importImage(from: url)
             }
         }
         return true
@@ -412,15 +410,15 @@ struct ScannerView: View {
             Button(action: { onShowSettings() }) {
                 Image(systemName: "gearshape.fill")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.4))
+                    .foregroundStyle(.secondary)
                     .frame(width: 22, height: 22)
-                    .background(.white.opacity(0.1), in: Circle())
+                    .background(.quaternary, in: Circle())
             }
             .buttonStyle(.plain)
 
             Text("QRScanner")
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(.primary)
 
             Spacer()
 
@@ -429,9 +427,9 @@ struct ScannerView: View {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "clock.arrow.circlepath")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.5))
+                        .foregroundStyle(.secondary)
                         .frame(width: 22, height: 22)
-                        .background(.white.opacity(0.1), in: Circle())
+                        .background(.quaternary, in: Circle())
 
                     if !history.entries.isEmpty {
                         Text("\(min(history.entries.count, 99))")
@@ -439,7 +437,7 @@ struct ScannerView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 3)
                             .padding(.vertical, 1)
-                            .background(.cyan, in: Capsule())
+                            .background(Color.accentColor, in: Capsule())
                             .offset(x: 6, y: -4)
                     }
                 }
@@ -458,7 +456,7 @@ struct ScannerView: View {
             // Corner brackets
             let s: CGFloat = 24
             let t: CGFloat = 3
-            let c = Color.white.opacity(0.7)
+            let c = Color.accentColor.opacity(0.5)
 
             VStack {
                 HStack {
@@ -511,12 +509,12 @@ struct ScannerView: View {
             let maxY = geo.size.height - 30
 
             LinearGradient(
-                colors: [.clear, .cyan.opacity(0.8), .cyan, .cyan.opacity(0.8), .clear],
+                colors: [.clear, Color.accentColor.opacity(0.8), Color.accentColor, Color.accentColor.opacity(0.8), .clear],
                 startPoint: .leading,
                 endPoint: .trailing
             )
             .frame(height: 2)
-            .shadow(color: .cyan.opacity(0.5), radius: 6)
+            .shadow(color: Color.accentColor.opacity(0.5), radius: 6)
             .offset(y: scanLineY)
             .onAppear {
                 withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: true)) {
@@ -539,23 +537,23 @@ struct ScannerView: View {
                 .font(.system(size: 12, design: .monospaced))
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 12)
 
             if copied {
                 Text("已复制到剪贴板")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.green.opacity(0.9))
+                    .foregroundStyle(.green)
             }
         }
         .padding(.vertical, 16)
         .padding(.horizontal, 20)
-        .background(.ultraThinMaterial.opacity(0.95), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(.background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                .strokeBorder(.separator, lineWidth: 0.5)
         )
-        .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
+        .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
     }
 
     // MARK: - Status Bar
@@ -576,13 +574,13 @@ struct ScannerView: View {
 
             Text("前置摄像头 · 扫描中")
                 .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.45))
+                .foregroundStyle(.secondary)
 
             Spacer()
 
             Text("⌘Q 退出")
                 .font(.system(size: 9, design: .rounded))
-                .foregroundStyle(.white.opacity(0.25))
+                .foregroundStyle(.tertiary)
         }
     }
 }
@@ -611,22 +609,4 @@ struct CameraPreviewView: NSViewRepresentable {
     }
 }
 
-// MARK: - Visual Effect Blur (NSVisualEffectView bridge)
 
-struct VisualEffectBlur: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let blendingMode: NSVisualEffectView.BlendingMode
-
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blendingMode
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
-    }
-}
