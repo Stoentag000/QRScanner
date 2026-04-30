@@ -63,10 +63,16 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
     func stopRunning() {
         scanningEnabled = false
-        isProcessing = false
         if sessionStarted {
             sessionStarted = false
             captureSession.stopRunning()
+        }
+        // Wait for any in-flight Vision request to finish so that
+        // isProcessing is guaranteed to be false when we're done.
+        // captureOutput guards on scanningEnabled, so the callback
+        // will exit quickly via its defer block.
+        processingQueue.sync {
+            isProcessing = false
         }
     }
 

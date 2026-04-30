@@ -1,11 +1,8 @@
 import SwiftUI
 import AppKit
-import AudioToolbox
 import Combine
 import Foundation
 import ServiceManagement
-import SwiftUI
-import Combine
 
 final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
@@ -14,12 +11,19 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var cameraScanner: CameraScanner?
     private var cancellables = Set<AnyCancellable>()
     private var lastCopiedValue: String?
+    private var rightClickMonitor: Any?
     let history = ScanHistory()
     let settings: AppSettings = .shared
 
     override init() {
         super.init()
         setupStatusItem()
+    }
+
+    deinit {
+        if let monitor = rightClickMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     private func setupStatusItem() {
@@ -31,16 +35,19 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
                                accessibilityDescription: "QRScanner")
         button.target = self
         button.action = #selector(handleClick(_:))
+
+        // Monitor right-click on status item — NSStatusItem's action
+        // only fires for left-click, so we need this for right-click.
+        rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseUp) {
+            [weak self] event in
+            guard let self, let button = self.statusItem.button,
+                  event.window == button.window else { return event }
+            self.showContextMenu()
+            return nil // consume the event
+        }
     }
 
     @objc private func handleClick(_ sender: Any?) {
-        guard let event = NSApp.currentEvent else { return }
-
-        if event.type == .rightMouseUp {
-            showContextMenu()
-            return
-        }
-
         // If settings window is open, close it and open scanner instead
         if settingsWindow != nil {
             settingsWindow?.close()
@@ -209,16 +216,46 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private func showContextMenu() {
         let menu = NSMenu()
 
+        let openItem = NSMenuItem(title: "打开主界面", action: #selector(openScanner), keyEquivalent: "o")
+        openItem.target = self
+        menu.addItem(openItem)
+
+        let settingsItem = NSMenuItem(title: "设置", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+
         if let last = lastCopiedValue {
-            let preview = String(last.prefix(40)) + (last.count > 40 ? "…" : "")
-            menu.addItem(withTitle: "上次: \(preview)", action: #selector(reCopy), keyEquivalent: "")
             menu.addItem(.separator())
+            let preview = String(last.prefix(40)) + (last.count > 40 ? "…" : "")
+            let copyItem = NSMenuItem(title: "上次: \(preview)", action: #selector(reCopy), keyEquivalent: "")
+            copyItem.target = self
+            menu.addItem(copyItem)
         }
 
-        menu.addItem(withTitle: "退出 QRScanner", action: #selector(quitApp), keyEquivalent: "q")
-        statusItem.menu = menu
-        statusItem.button?.performClick(nil)
-        statusItem.menu = nil
+        menu.addItem(.separator())
+        let quitItem = NSMenuItem(title: "退出 QRScanner", action: #selector(quitApp), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        // Show menu anchored to the status bar button
+        if let button = statusItem.button {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
+        }
+    }
+
+    @objc private func openScanner() {
+        if settingsWindow != nil {
+            settingsWindow?.close()
+            settingsWindow = nil
+        }
+        if popover?.isShown != true {
+            openPopover()
+        }
+    }
+
+    @objc private func openSettings() {
+        closePopover()
+        switchToSettings()
     }
 
     @objc private func reCopy() {
