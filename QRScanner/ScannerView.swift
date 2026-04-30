@@ -21,6 +21,8 @@ struct ScannerView: View {
     @ObservedObject var cameraScanner: CameraScanner
     @ObservedObject var history: ScanHistory
     @ObservedObject var settings: AppSettings
+    var initialCameraMode: Bool = true
+    var onModeChange: (Bool) -> Void = { _ in }
     var onShowHistory: () -> Void = {}
     var onShowSettings: () -> Void = {}
     @State private var detectedCode: String?
@@ -29,7 +31,7 @@ struct ScannerView: View {
     @State private var uploadedImage: NSImage?
     @State private var imageCodes: [String] = []
     @State private var showFilePicker = false
-    @State private var isCameraMode = true
+    @State private var isCameraMode: Bool = true
     @Environment(\.closeWindow) var closeWindow
 
     var body: some View {
@@ -60,8 +62,21 @@ struct ScannerView: View {
                     .padding(.bottom, 14)
                     .padding(.top, 12)
             }
+
+            // Global drag overlay — only in camera mode (image mode has its own)
+            if isDragging && isCameraMode {
+                dragHighlight
+                    .transition(.opacity)
+                    .animation(.easeInOut(duration: 0.15), value: isDragging)
+            }
         }
         .frame(width: 380, height: isCameraMode ? 500 : 460)
+        .onAppear {
+            if !initialCameraMode {
+                isCameraMode = false
+                cameraScanner.stopRunning()
+            }
+        }
         .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
             handleDrop(providers: providers)
         }
@@ -85,6 +100,7 @@ struct ScannerView: View {
             modeButton("摄像头", icon: "camera.fill", active: isCameraMode) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isCameraMode = true
+                    onModeChange(true)
                     uploadedImage = nil
                     imageCodes = []
                     detectedCode = nil
@@ -95,6 +111,7 @@ struct ScannerView: View {
             modeButton("上传图片", icon: "photo.on.rectangle", active: !isCameraMode) {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     isCameraMode = false
+                    onModeChange(false)
                     cameraScanner.stopRunning()
                     showFilePicker = true
                 }
@@ -150,8 +167,11 @@ struct ScannerView: View {
     private var imageArea: some View {
         ZStack {
             VStack(spacing: 0) {
-                if let image = uploadedImage {
-                    // Show uploaded image with results (dimmed during drag)
+                if isDragging {
+                    // During drag: show consistent dragHighlight in both states
+                    dragHighlight
+                } else if let image = uploadedImage {
+                    // Show uploaded image with results
                     VStack(spacing: 10) {
                         // Image preview
                         Image(nsImage: image)
@@ -200,21 +220,8 @@ struct ScannerView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
-                    .opacity(isDragging ? 0.3 : 1)
-                    .overlay {
-                        if isDragging {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 2)
-                                .allowsHitTesting(false)
-                        }
-                    }
                 } else {
-                    // Empty state: drop zone or drag overlay
-                    if isDragging {
-                        dragHighlight
-                    } else {
-                        dropZone
-                    }
+                    dropZone
                 }
             }
 
@@ -363,10 +370,18 @@ struct ScannerView: View {
             cameraScanner.stopRunning()
         }
 
-        guard url.startAccessingSecurityScopedResource() else { return }
-        defer { url.stopAccessingSecurityScopedResource() }
+        // Try security-scoped access (needed in sandbox), but don't bail out
+        // if it fails — the URL might still be readable (e.g. non-sandboxed,
+        // or the drag source already granted access).
+        let hasSecurityAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasSecurityAccess { url.stopAccessingSecurityScopedResource() }
+        }
 
-        guard let image = NSImage(contentsOf: url) else { return }
+        guard let image = NSImage(contentsOf: url) else {
+            print("[QRScanner] Could not load image from URL: \(url)")
+            return
+        }
 
         uploadedImage = image
         imageCodes = ImageCodeDetector.detectCodes(in: image)
@@ -394,14 +409,43 @@ struct ScannerView: View {
     /// onDrop callback — parses NSItemProvider, forwards to importImage.
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first else { return false }
-        provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, _ in
-            guard let data = item as? Data,
-                  let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
-            DispatchQueue.main.async {
-                self.importImage(from: url)
+
+        // Try NSFilePromiseReceiver first (sandboxed apps, Finder, Photos, etc.)
+        if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+            provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
+                if let error = error {
+                    print("[QRScanner] loadItem error: \(error)")
+                    return
+                }
+
+                var url: URL?
+
+                // NSItemProvider may return NSURL directly (common for file drags)
+                if let nsURL = item as? NSURL {
+                    url = nsURL as URL
+                }
+                // Or it may return raw Data (bookmark data)
+                else if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                }
+                // Or a URL string
+                else if let urlString = item as? String {
+                    url = URL(string: urlString)
+                }
+
+                guard let resolvedURL = url else {
+                    print("[QRScanner] Could not resolve dropped item to URL: \(String(describing: item))")
+                    return
+                }
+
+                DispatchQueue.main.async {
+                    self.importImage(from: resolvedURL)
+                }
             }
+            return true
         }
-        return true
+
+        return false
     }
 
     private var header: some View {

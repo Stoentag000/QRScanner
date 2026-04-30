@@ -12,6 +12,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var lastCopiedValue: String?
     private var rightClickMonitor: Any?
+    private var scannerIsCameraMode = true  // Track scanner mode across reopen
     let history = ScanHistory()
     let settings: AppSettings = .shared
 
@@ -105,6 +106,10 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
             cameraScanner: cameraScanner!,
             history: history,
             settings: settings,
+            initialCameraMode: scannerIsCameraMode,
+            onModeChange: { [weak self] isCamera in
+                self?.scannerIsCameraMode = isCamera
+            },
             onShowHistory: { [weak self] in
                 self?.switchToHistory()
             },
