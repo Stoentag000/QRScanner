@@ -119,7 +119,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         )
 
         showPopover(with: scannerView)
-        cameraScanner?.startRunning()
+        cameraScanner?.startRunning(cameraID: settings.selectedCameraID)
     }
 
     // MARK: - Scanner Cleanup

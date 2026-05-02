@@ -3,9 +3,26 @@ import Vision
 import Foundation
 import Combine
 
+// MARK: - Camera Device Model
+
+struct CameraDevice: Identifiable, Hashable {
+    let id: String          // AVCaptureDevice uniqueID
+    let name: String        // Localized name
+    let isContinuityCamera: Bool
+    let isExternal: Bool
+
+    var icon: String {
+        if isContinuityCamera { return "iphone" }
+        if isExternal { return "video" }
+        return "web.camera"     // built-in
+    }
+}
+
 final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let captureSession = AVCaptureSession()
     @Published var lastDetectedCode: String?
+    @Published var availableCameras: [CameraDevice] = []
+    @Published var currentCameraID: String?
 
     private let processingQueue = DispatchQueue(label: "scanner.queue", qos: .userInteractive)
     private var isProcessing = false
@@ -15,46 +32,145 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
     override init() {
         super.init()
-        configureSession()
+        refreshAvailableCameras()
     }
 
-    private func configureSession() {
+    // MARK: - Camera Discovery
+
+    /// Scan the system for all video capture devices, including Continuity Camera (iPhone).
+    func refreshAvailableCameras() {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [
+                .builtInWideAngleCamera,
+                .external,               // USB / Thunderbolt webcams
+                .continuityCamera,       // iPhone via Continuity Camera (macOS 13+)
+            ],
+            mediaType: .video,
+            position: .unspecified
+        )
+
+        var seen = Set<String>()
+        var cameras: [CameraDevice] = []
+
+        for device in discovery.devices {
+            // Deduplicate (some devices appear in multiple discovery types)
+            guard !seen.contains(device.uniqueID) else { continue }
+            seen.insert(device.uniqueID)
+
+            let isCC = device.deviceType == .continuityCamera
+            let isExt = device.deviceType == .external || device.deviceType == .continuityCamera
+
+            cameras.append(CameraDevice(
+                id: device.uniqueID,
+                name: device.localizedName,
+                isContinuityCamera: isCC,
+                isExternal: isExt
+            ))
+        }
+
+        DispatchQueue.main.async {
+            self.availableCameras = cameras
+        }
+    }
+
+    /// Resolve a AVCaptureDevice from a camera ID string.
+    /// Falls back to the best available camera if the ID is invalid or "auto".
+    private func resolveDevice(for cameraID: String) -> AVCaptureDevice? {
+        if cameraID != AppSettings.autoCameraID {
+            if let device = AVCaptureDevice(uniqueID: cameraID) {
+                return device
+            }
+        }
+
+        // Auto-pick: prefer built-in front → built-in back → external → continuity camera
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+
+        let preferred: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external, .continuityCamera]
+        for type in preferred {
+            if let device = discovery.devices.first(where: { $0.deviceType == type }) {
+                return device
+            }
+        }
+        return discovery.devices.first
+    }
+
+    // MARK: - Session Configuration
+
+    /// (Re)configure the capture session for the given camera ID.
+    /// If the session is already running, it will be reconfigured live.
+    func configure(with cameraID: String) {
+        let wasRunning = sessionStarted
+
+        if wasRunning {
+            scanningEnabled = false
+            captureSession.stopRunning()
+            sessionStarted = false
+        }
+
+        // Remove existing inputs
+        for input in captureSession.inputs {
+            captureSession.removeInput(input)
+        }
+
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .high
 
-        guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera,
-                                                    for: .video,
-                                                    position: .front),
-              let input = try? AVCaptureDeviceInput(device: camera),
+        guard let device = resolveDevice(for: cameraID),
+              let input = try? AVCaptureDeviceInput(device: device),
               captureSession.canAddInput(input) else {
             captureSession.commitConfiguration()
             return
         }
+
         captureSession.addInput(input)
 
-        let output = AVCaptureVideoDataOutput()
-        output.videoSettings = [
-            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-        ]
-        output.alwaysDiscardsLateVideoFrames = true
+        // Add output if not already present
+        if captureSession.outputs.isEmpty {
+            let output = AVCaptureVideoDataOutput()
+            output.videoSettings = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ]
+            output.alwaysDiscardsLateVideoFrames = true
 
-        guard captureSession.canAddOutput(output) else {
-            captureSession.commitConfiguration()
-            return
+            guard captureSession.canAddOutput(output) else {
+                captureSession.commitConfiguration()
+                return
+            }
+            captureSession.addOutput(output)
+            output.setSampleBufferDelegate(self, queue: processingQueue)
+            self.videoOutput = output
         }
-        captureSession.addOutput(output)
-        output.setSampleBufferDelegate(self, queue: processingQueue)
-        self.videoOutput = output
 
         captureSession.commitConfiguration()
+
+        DispatchQueue.main.async {
+            self.currentCameraID = device.uniqueID
+        }
+
+        if wasRunning {
+            sessionStarted = true
+            captureSession.startRunning()
+            scanningEnabled = true
+            isProcessing = false
+        }
     }
 
-    func startRunning() {
+    // MARK: - Start / Stop
+
+    func startRunning(cameraID: String? = nil) {
+        let targetID = cameraID ?? currentCameraID ?? AppSettings.autoCameraID
+
+        // If switching cameras or first run, (re)configure
+        if currentCameraID != targetID || captureSession.inputs.isEmpty {
+            configure(with: targetID)
+        }
+
         if !sessionStarted {
             sessionStarted = true
-            // Must be called from main thread — AVCaptureSession's internal
-            // collections are not thread-safe; dispatching to a global queue
-            // causes "mutated while being enumerated" when start/stop race.
             captureSession.startRunning()
         }
         scanningEnabled = true
@@ -67,10 +183,6 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             sessionStarted = false
             captureSession.stopRunning()
         }
-        // Wait for any in-flight Vision request to finish so that
-        // isProcessing is guaranteed to be false when we're done.
-        // captureOutput guards on scanningEnabled, so the callback
-        // will exit quickly via its defer block.
         processingQueue.sync {
             isProcessing = false
         }
@@ -100,7 +212,6 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
             if firstCode != self.lastDetectedCode {
                 DispatchQueue.main.async {
-                    // Re-check after dispatch in case stopRunning was called
                     guard self.scanningEnabled else { return }
                     self.lastDetectedCode = firstCode
                 }

@@ -104,7 +104,7 @@ struct ScannerView: View {
                     uploadedImage = nil
                     imageCodes = []
                     detectedCode = nil
-                    cameraScanner.startRunning()
+                    cameraScanner.startRunning(cameraID: settings.selectedCameraID)
                 }
             }
 
@@ -464,6 +464,11 @@ struct ScannerView: View {
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
 
+            // Camera picker (only visible in camera mode)
+            if isCameraMode {
+                cameraPicker
+            }
+
             Spacer()
 
             // History button
@@ -491,6 +496,56 @@ struct ScannerView: View {
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 10)
+    }
+
+    // MARK: - Camera Picker
+
+    private var cameraPicker: some View {
+        Menu {
+            ForEach(cameraScanner.availableCameras) { camera in
+                Button(action: {
+                    settings.selectedCameraID = camera.id
+                    cameraScanner.startRunning(cameraID: camera.id)
+                }) {
+                    Label(camera.name, systemImage: camera.icon)
+                }
+            }
+
+            if cameraScanner.availableCameras.isEmpty {
+                Text("未检测到摄像头")
+                    .foregroundStyle(.secondary)
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: currentCameraIcon)
+                    .font(.system(size: 9, weight: .medium))
+                Text(currentCameraName)
+                    .font(.system(size: 9, weight: .medium, design: .rounded))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var currentCameraName: String {
+        if let id = cameraScanner.currentCameraID,
+           let camera = cameraScanner.availableCameras.first(where: { $0.id == id }) {
+            return camera.name
+        }
+        return "自动"
+    }
+
+    private var currentCameraIcon: String {
+        if let id = cameraScanner.currentCameraID,
+           let camera = cameraScanner.availableCameras.first(where: { $0.id == id }) {
+            return camera.icon
+        }
+        return "camera.fill"
     }
 
     // MARK: - Scan Frame Overlay
@@ -604,21 +659,31 @@ struct ScannerView: View {
 
     private var statusBar: some View {
         HStack(spacing: 6) {
-            // Live indicator
-            Circle()
-                .fill(.red.gradient)
-                .frame(width: 6, height: 6)
-                .shadow(color: .red.opacity(0.5), radius: 3)
-                .opacity(pulse ? 1 : 0.4)
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
-                        pulse = true
+            if isCameraMode {
+                // Live indicator
+                Circle()
+                    .fill(.red.gradient)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: .red.opacity(0.5), radius: 3)
+                    .opacity(pulse ? 1 : 0.4)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 1).repeatForever(autoreverses: true)) {
+                            pulse = true
+                        }
                     }
-                }
 
-            Text("前置摄像头 · 扫描中")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
+                Text("\(currentCameraName) · 扫描中")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+
+                Text("图片识别模式")
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
 
             Spacer()
 

@@ -33,6 +33,12 @@ final class AppSettings: ObservableObject {
     @Published var theme: AppTheme {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme") }
     }
+    @Published var selectedCameraID: String {
+        didSet { UserDefaults.standard.set(selectedCameraID, forKey: "selectedCameraID") }
+    }
+
+    /// nil = use selectedCameraID; "auto" = pick best available
+    static let autoCameraID = "auto"
 
     init() {
         self.soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
@@ -43,6 +49,7 @@ final class AppSettings: ObservableObject {
         } else {
             self.theme = .system
         }
+        self.selectedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID") ?? AppSettings.autoCameraID
     }
 
     var launchAtLogin: Bool {

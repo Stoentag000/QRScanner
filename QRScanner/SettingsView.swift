@@ -5,6 +5,7 @@ import SwiftUI
 enum SettingsCategory: String, CaseIterable, Identifiable {
     case general = "通用"
     case scanning = "扫描行为"
+    case camera = "摄像头"
     case about = "关于"
 
     var id: String { rawValue }
@@ -13,6 +14,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "gearshape"
         case .scanning: return "qrcode.viewfinder"
+        case .camera: return "camera"
         case .about: return "info.circle"
         }
     }
@@ -66,6 +68,8 @@ struct SettingsView: View {
                     generalSettings
                 case .scanning:
                     scanningSettings
+                case .camera:
+                    cameraSettings
                 case .about:
                     aboutSettings
                 }
@@ -125,6 +129,107 @@ struct SettingsView: View {
                 isOn: $settings.autoCopy
             )
         }
+    }
+
+    // MARK: - Camera Settings
+
+    @StateObject private var cameraScannerForSettings = CameraScanner()
+
+    private var cameraSettings: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionTitle("摄像头选择")
+
+            VStack(spacing: 8) {
+                ForEach(cameraScannerForSettings.availableCameras) { camera in
+                    cameraRow(camera)
+                }
+
+                if cameraScannerForSettings.availableCameras.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.orange)
+                        Text("未检测到摄像头")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+
+            // Auto option
+            settingToggle(
+                icon: "sparkles",
+                title: "自动选择",
+                subtitle: "自动选择最佳可用摄像头",
+                isOn: Binding(
+                    get: { settings.selectedCameraID == AppSettings.autoCameraID },
+                    set: { newValue in
+                        settings.selectedCameraID = newValue ? AppSettings.autoCameraID : (cameraScannerForSettings.availableCameras.first?.id ?? AppSettings.autoCameraID)
+                    }
+                )
+            )
+
+            Divider()
+                .padding(.vertical, 4)
+
+            sectionTitle("提示")
+
+            Text("连接 iPhone 或外接摄像头后，需要重新打开此面板刷新设备列表。Continuity Camera 需要 macOS Ventura 或更高版本，且设备登录同一 Apple ID。")
+                .font(.system(size: 10, design: .rounded))
+                .foregroundStyle(.tertiary)
+                .lineSpacing(3)
+        }
+        .onAppear {
+            cameraScannerForSettings.refreshAvailableCameras()
+        }
+    }
+
+    private func cameraRow(_ camera: CameraDevice) -> some View {
+        let isSelected = settings.selectedCameraID == camera.id
+
+        return Button(action: {
+            settings.selectedCameraID = camera.id
+        }) {
+            HStack(spacing: 12) {
+                Image(systemName: camera.icon)
+                    .font(.system(size: 14))
+                    .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                    .frame(width: 28, height: 28)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(camera.name)
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.primary)
+
+                    Text(camera.isContinuityCamera ? "Continuity Camera" : camera.isExternal ? "外接设备" : "内置摄像头")
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.08)) : AnyShapeStyle(.quaternary),
+                in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(isSelected ? Color.accentColor.opacity(0.3) : .clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - About Settings
