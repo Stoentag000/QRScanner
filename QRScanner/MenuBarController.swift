@@ -96,8 +96,10 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
         cameraScanner = CameraScanner()
 
+        guard let scanner = cameraScanner else { return }
+
         // 通过 Combine 监听 @Published 统一处理检测结果
-        cameraScanner!.$lastDetectedCode
+        scanner.$lastDetectedCode
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
             .removeDuplicates()
@@ -107,7 +109,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
             .store(in: &cancellables)
 
         let scannerView = ScannerView(
-            cameraScanner: cameraScanner!,
+            cameraScanner: scanner,
             history: history,
             settings: settings,
             initialCameraMode: scannerIsCameraMode,

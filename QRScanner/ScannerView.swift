@@ -246,7 +246,7 @@ struct ScannerView: View {
                 Text("放开以识别图片")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(Color.accentColor.opacity(0.7))
-                Text("支持 PNG / JPG / TIFF / GIF")
+                Text("支持 PNG / JPG / TIFF / GIF / BMP / WebP")
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(Color.accentColor.opacity(0.4))
             }
@@ -279,7 +279,7 @@ struct ScannerView: View {
                     Text("点击或拖拽图片到此处")
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
-                    Text("支持 PNG / JPG / TIFF / GIF")
+                    Text("支持 PNG / JPG / TIFF / GIF / BMP / WebP")
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(.tertiary)
                 }

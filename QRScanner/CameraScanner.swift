@@ -29,6 +29,27 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private var scanningEnabled = false
     private var sessionStarted = false
     private weak var videoOutput: AVCaptureVideoDataOutput?
+    private lazy var barcodeRequest: VNDetectBarcodesRequest = {
+        let request = VNDetectBarcodesRequest { [weak self] request, error in
+            guard let self else { return }
+            defer { self.isProcessing = false }
+
+            guard self.scanningEnabled, error == nil,
+                  let results = request.results as? [VNBarcodeObservation],
+                  let firstCode = results.first?.payloadStringValue else {
+                return
+            }
+
+            let previousCode = self.lastDetectedCode
+            if firstCode != previousCode {
+                DispatchQueue.main.async {
+                    guard self.scanningEnabled else { return }
+                    self.lastDetectedCode = firstCode
+                }
+            }
+        }
+        return request
+    }()
 
     override init() {
         super.init()
@@ -153,9 +174,13 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
         if wasRunning {
             sessionStarted = true
-            captureSession.startRunning()
-            scanningEnabled = true
-            processingQueue.sync { isProcessing = false }
+            processingQueue.async { [weak self] in
+                self?.captureSession.startRunning()
+                self?.isProcessing = false
+                DispatchQueue.main.async {
+                    self?.scanningEnabled = true
+                }
+            }
         }
     }
 
@@ -171,10 +196,17 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
         if !sessionStarted {
             sessionStarted = true
-            captureSession.startRunning()
+            processingQueue.async { [weak self] in
+                self?.captureSession.startRunning()
+                self?.isProcessing = false
+                DispatchQueue.main.async {
+                    self?.scanningEnabled = true
+                }
+            }
+        } else {
+            scanningEnabled = true
+            processingQueue.sync { isProcessing = false }
         }
-        scanningEnabled = true
-        processingQueue.sync { isProcessing = false }
     }
 
     func stopRunning() {
@@ -201,26 +233,6 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             return
         }
 
-        let request = VNDetectBarcodesRequest { [weak self] request, error in
-            guard let self else { return }
-            defer { self.isProcessing = false }
-
-            guard self.scanningEnabled, error == nil,
-                  let results = request.results as? [VNBarcodeObservation],
-                  let firstCode = results.first?.payloadStringValue else {
-                return
-            }
-
-            // Compare on processingQueue to avoid racing with main-thread writes
-            let previousCode = self.lastDetectedCode
-            if firstCode != previousCode {
-                DispatchQueue.main.async {
-                    guard self.scanningEnabled else { return }
-                    self.lastDetectedCode = firstCode
-                }
-            }
-        }
-
         // Derive orientation from connection instead of hardcoding .right
         let orientation: CGImagePropertyOrientation
         let angle = connection.videoRotationAngle
@@ -233,6 +245,6 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         }
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
-        try? handler.perform([request])
+        try? handler.perform([barcodeRequest])
     }
 }
