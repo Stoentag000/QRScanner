@@ -1,5 +1,4 @@
 import Foundation
-import Foundation
 import Combine
 
 struct ScanEntry: Codable, Identifiable, Hashable {

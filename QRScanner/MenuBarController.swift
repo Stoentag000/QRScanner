@@ -90,6 +90,10 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     }
 
     private func openPopover() {
+        // Clear any stale subscriptions before creating new ones
+        cancellables.forEach { $0.cancel() }
+        cancellables.removeAll()
+
         cameraScanner = CameraScanner()
 
         // 通过 Combine 监听 @Published 统一处理检测结果
@@ -188,6 +192,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
     func popoverShouldClose(_ popover: NSPopover) -> Bool {
         cleanupScanner()
+        self.popover = nil
         return true
     }
 

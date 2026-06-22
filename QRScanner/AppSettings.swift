@@ -36,6 +36,24 @@ final class AppSettings: ObservableObject {
     @Published var selectedCameraID: String {
         didSet { UserDefaults.standard.set(selectedCameraID, forKey: "selectedCameraID") }
     }
+    @Published var launchAtLoginEnabled: Bool {
+        didSet {
+            if #available(macOS 13.0, *) {
+                do {
+                    if launchAtLoginEnabled {
+                        try SMAppService.mainApp.register()
+                    } else {
+                        try SMAppService.mainApp.unregister()
+                    }
+                } catch {
+                    // Revert on failure
+                    DispatchQueue.main.async {
+                        self.launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+                    }
+                }
+            }
+        }
+    }
 
     /// nil = use selectedCameraID; "auto" = pick best available
     static let autoCameraID = "auto"
@@ -50,27 +68,12 @@ final class AppSettings: ObservableObject {
             self.theme = .system
         }
         self.selectedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID") ?? AppSettings.autoCameraID
-    }
 
-    var launchAtLogin: Bool {
-        get {
-            if #available(macOS 13.0, *) {
-                return SMAppService.mainApp.status == .enabled
-            }
-            return false
-        }
-        set {
-            if #available(macOS 13.0, *) {
-                do {
-                    if newValue {
-                        try SMAppService.mainApp.register()
-                    } else {
-                        try SMAppService.mainApp.unregister()
-                    }
-                } catch {
-                    // Silently fail
-                }
-            }
+        // Sync launch-at-login state from SMAppService
+        if #available(macOS 13.0, *) {
+            self.launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+        } else {
+            self.launchAtLoginEnabled = false
         }
     }
 }

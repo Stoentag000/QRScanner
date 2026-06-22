@@ -101,10 +101,7 @@ struct SettingsView: View {
                 icon: "power",
                 title: "开机自启",
                 subtitle: "登录时自动启动 QRScanner",
-                isOn: Binding(
-                    get: { settings.launchAtLogin },
-                    set: { settings.launchAtLogin = $0 }
-                )
+                isOn: $settings.launchAtLoginEnabled
             )
         }
     }

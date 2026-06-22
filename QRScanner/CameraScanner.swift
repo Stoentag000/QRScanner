@@ -155,7 +155,7 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             sessionStarted = true
             captureSession.startRunning()
             scanningEnabled = true
-            isProcessing = false
+            processingQueue.sync { isProcessing = false }
         }
     }
 
@@ -174,7 +174,7 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             captureSession.startRunning()
         }
         scanningEnabled = true
-        isProcessing = false
+        processingQueue.sync { isProcessing = false }
     }
 
     func stopRunning() {
@@ -202,15 +202,18 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         }
 
         let request = VNDetectBarcodesRequest { [weak self] request, error in
-            defer { self?.isProcessing = false }
+            guard let self else { return }
+            defer { self.isProcessing = false }
 
-            guard let self, self.scanningEnabled, error == nil,
+            guard self.scanningEnabled, error == nil,
                   let results = request.results as? [VNBarcodeObservation],
                   let firstCode = results.first?.payloadStringValue else {
                 return
             }
 
-            if firstCode != self.lastDetectedCode {
+            // Compare on processingQueue to avoid racing with main-thread writes
+            let previousCode = self.lastDetectedCode
+            if firstCode != previousCode {
                 DispatchQueue.main.async {
                     guard self.scanningEnabled else { return }
                     self.lastDetectedCode = firstCode
@@ -218,7 +221,18 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             }
         }
 
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .right, options: [:])
+        // Derive orientation from connection instead of hardcoding .right
+        let orientation: CGImagePropertyOrientation
+        let angle = connection.videoRotationAngle
+        switch angle {
+        case 315..<360, 0..<45:   orientation = .up      // 0° landscape
+        case 45..<135:            orientation = .right    // 90° portrait
+        case 135..<225:           orientation = .down     // 180° landscape flipped
+        case 225..<315:           orientation = .left     // 270° portrait flipped
+        default:                  orientation = .up
+        }
+
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
         try? handler.perform([request])
     }
 }

@@ -153,13 +153,23 @@ struct HistoryView: View {
         }
     }
 
+    private static let todayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    private static let otherDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MM/dd HH:mm"
+        return f
+    }()
+
     private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
         if Calendar.current.isDateInToday(date) {
-            formatter.dateFormat = "HH:mm:ss"
+            return Self.todayFormatter.string(from: date)
         } else {
-            formatter.dateFormat = "MM/dd HH:mm"
+            return Self.otherDayFormatter.string(from: date)
         }
-        return formatter.string(from: date)
     }
 }
