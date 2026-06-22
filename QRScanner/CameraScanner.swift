@@ -29,27 +29,6 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private var scanningEnabled = false
     private var sessionStarted = false
     private weak var videoOutput: AVCaptureVideoDataOutput?
-    private lazy var barcodeRequest: VNDetectBarcodesRequest = {
-        let request = VNDetectBarcodesRequest { [weak self] request, error in
-            guard let self else { return }
-            defer { self.isProcessing = false }
-
-            guard self.scanningEnabled, error == nil,
-                  let results = request.results as? [VNBarcodeObservation],
-                  let firstCode = results.first?.payloadStringValue else {
-                return
-            }
-
-            let previousCode = self.lastDetectedCode
-            if firstCode != previousCode {
-                DispatchQueue.main.async {
-                    guard self.scanningEnabled else { return }
-                    self.lastDetectedCode = firstCode
-                }
-            }
-        }
-        return request
-    }()
 
     override init() {
         super.init()
@@ -133,11 +112,10 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         }
 
         // Remove existing inputs
+        captureSession.beginConfiguration()
         for input in captureSession.inputs {
             captureSession.removeInput(input)
         }
-
-        captureSession.beginConfiguration()
         captureSession.sessionPreset = .high
 
         guard let device = resolveDevice(for: cameraID),
@@ -174,13 +152,9 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
         if wasRunning {
             sessionStarted = true
-            processingQueue.async { [weak self] in
-                self?.captureSession.startRunning()
-                self?.isProcessing = false
-                DispatchQueue.main.async {
-                    self?.scanningEnabled = true
-                }
-            }
+            captureSession.startRunning()
+            scanningEnabled = true
+            processingQueue.sync { isProcessing = false }
         }
     }
 
@@ -196,17 +170,10 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
         if !sessionStarted {
             sessionStarted = true
-            processingQueue.async { [weak self] in
-                self?.captureSession.startRunning()
-                self?.isProcessing = false
-                DispatchQueue.main.async {
-                    self?.scanningEnabled = true
-                }
-            }
-        } else {
-            scanningEnabled = true
+            captureSession.startRunning()
             processingQueue.sync { isProcessing = false }
         }
+        scanningEnabled = true
     }
 
     func stopRunning() {
@@ -215,9 +182,7 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             sessionStarted = false
             captureSession.stopRunning()
         }
-        processingQueue.sync {
-            isProcessing = false
-        }
+        processingQueue.sync { isProcessing = false }
     }
 
     // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
@@ -245,6 +210,26 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         }
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
-        try? handler.perform([barcodeRequest])
+
+        let request = VNDetectBarcodesRequest { [weak self] request, error in
+            guard let self else { return }
+            defer { self.isProcessing = false }
+
+            guard self.scanningEnabled, error == nil,
+                  let results = request.results as? [VNBarcodeObservation],
+                  let firstCode = results.first?.payloadStringValue else {
+                return
+            }
+
+            let previousCode = self.lastDetectedCode
+            if firstCode != previousCode {
+                DispatchQueue.main.async {
+                    guard self.scanningEnabled else { return }
+                    self.lastDetectedCode = firstCode
+                }
+            }
+        }
+
+        try? handler.perform([request])
     }
 }

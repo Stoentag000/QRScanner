@@ -12,6 +12,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var cancellables = Set<AnyCancellable>()
     private var lastCopiedValue: String?
     private var rightClickMonitor: Any?
+    private var keyMonitor: Any?
     private var scannerIsCameraMode = true  // Track scanner mode across reopen
     let history = ScanHistory()
     let settings: AppSettings = .shared
@@ -23,6 +24,9 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
     deinit {
         if let monitor = rightClickMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
+        if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
         }
     }
@@ -45,6 +49,16 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
                   event.window == button.window else { return event }
             self.showContextMenu()
             return nil // consume the event
+        }
+
+        // Monitor Command+Q while popover has focus (NSPopover steals keyboard events)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+            [weak self] event in
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "q" {
+                self?.quitApp()
+                return nil
+            }
+            return event
         }
     }
 

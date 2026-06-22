@@ -71,6 +71,11 @@ struct ScannerView: View {
             }
         }
         .frame(width: 380, height: isCameraMode ? 500 : 460)
+        .onChange(of: isCameraMode) { _, newValue in
+            if newValue {
+                scanLineY = 0
+            }
+        }
         .onAppear {
             if !initialCameraMode {
                 isCameraMode = false
@@ -616,6 +621,7 @@ struct ScannerView: View {
             .shadow(color: Color.accentColor.opacity(0.5), radius: 6)
             .offset(y: scanLineY)
             .onAppear {
+                scanLineY = 0
                 withAnimation(.linear(duration: 2.5).repeatForever(autoreverses: true)) {
                     scanLineY = maxY - minY
                 }
