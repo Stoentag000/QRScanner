@@ -20,6 +20,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     override init() {
         super.init()
         setupStatusItem()
+        cameraScanner = CameraScanner()
     }
 
     deinit {
@@ -108,8 +109,6 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         cancellables.forEach { $0.cancel() }
         cancellables.removeAll()
 
-        cameraScanner = CameraScanner()
-
         guard let scanner = cameraScanner else { return }
 
         // 通过 Combine 监听 @Published 统一处理检测结果
@@ -148,7 +147,6 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         cameraScanner?.stopRunning()
         cancellables.forEach { $0.cancel() }
         cancellables.removeAll()
-        cameraScanner = nil
     }
 
     private func switchToSettings() {

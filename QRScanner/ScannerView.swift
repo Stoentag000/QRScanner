@@ -31,6 +31,7 @@ struct ScannerView: View {
     @State private var uploadedImage: NSImage?
     @State private var imageCodes: [String] = []
     @State private var showFilePicker = false
+    @State private var loadError: String?
     @State private var isCameraMode: Bool = true
     @Environment(\.closeWindow) var closeWindow
 
@@ -225,6 +226,33 @@ struct ScannerView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
+                } else if let error = loadError {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button(action: { showFilePicker = true }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("重新选择")
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                            }
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(height: 300)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 } else {
                     dropZone
                 }
@@ -345,18 +373,25 @@ struct ScannerView: View {
     private func showDetectedCode(_ code: String) {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
             detectedCode = code
-            copied = true
+            copied = settings.autoCopy
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-            withAnimation { copied = false }
+        if settings.autoCopy {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
+                withAnimation { self.detectedCode = nil; self.copied = false }
+            }
+        } else {
+            // Auto-dismiss after 3.5s if user hasn't tapped copy
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
+                if !self.copied {
+                    withAnimation { self.detectedCode = nil }
+                }
+            }
         }
     }
 
     private func copyToClipboard(_ code: String) {
-        if settings.autoCopy {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(code, forType: .string)
-        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(code, forType: .string)
         withAnimation {
             detectedCode = code
             copied = true
@@ -375,32 +410,41 @@ struct ScannerView: View {
             cameraScanner.stopRunning()
         }
 
-        // Try security-scoped access (needed in sandbox), but don't bail out
-        // if it fails — the URL might still be readable (e.g. non-sandboxed,
-        // or the drag source already granted access).
-        let hasSecurityAccess = url.startAccessingSecurityScopedResource()
-        defer {
-            if hasSecurityAccess { url.stopAccessingSecurityScopedResource() }
-        }
-
-        guard let image = NSImage(contentsOf: url) else {
-            print("[QRScanner] Could not load image from URL: \(url)")
-            return
-        }
-
-        uploadedImage = image
-        imageCodes = ImageCodeDetector.detectCodes(in: image)
-        for code in imageCodes {
-            history.add(code, source: .image)
-        }
-        if let first = imageCodes.first {
-            showDetectedCode(first)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                withAnimation { detectedCode = nil; copied = false }
+        // Background thread: file I/O + Vision detection
+        DispatchQueue.global(qos: .userInitiated).async {
+            // Security-scoped access must start/stop on the same thread
+            let hasSecurityAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasSecurityAccess { url.stopAccessingSecurityScopedResource() }
             }
-        }
-        if !imageCodes.isEmpty && settings.soundEnabled {
-            SoundPlayer.shared.play()
+
+            guard let image = NSImage(contentsOf: url) else {
+                DispatchQueue.main.async {
+                    self.loadError = "无法加载图片，请检查文件格式或路径"
+                }
+                return
+            }
+
+            let codes = ImageCodeDetector.detectCodes(in: image)
+
+            // Back to main thread for UI updates
+            DispatchQueue.main.async {
+                self.loadError = nil
+                self.uploadedImage = image
+                self.imageCodes = codes
+
+                for code in codes {
+                    self.history.add(code, source: .image)
+                }
+
+                if let first = codes.first {
+                    self.showDetectedCode(first)
+                }
+
+                if !codes.isEmpty && self.settings.soundEnabled {
+                    SoundPlayer.shared.play()
+                }
+            }
         }
     }
 
@@ -649,6 +693,20 @@ struct ScannerView: View {
                 Text("已复制到剪贴板")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.green)
+            } else {
+                Button(action: { copyToClipboard(code) }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "doc.on.clipboard")
+                            .font(.system(size: 10))
+                        Text("复制到剪贴板")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                    }
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Color.accentColor.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(.vertical, 16)

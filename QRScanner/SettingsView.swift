@@ -130,18 +130,18 @@ struct SettingsView: View {
 
     // MARK: - Camera Settings
 
-    @StateObject private var cameraScannerForSettings = CameraScanner()
+    @State private var settingsCameras: [CameraDevice] = []
 
     private var cameraSettings: some View {
         VStack(alignment: .leading, spacing: 16) {
             sectionTitle("摄像头选择")
 
             VStack(spacing: 8) {
-                ForEach(cameraScannerForSettings.availableCameras) { camera in
+                ForEach(settingsCameras) { camera in
                     cameraRow(camera)
                 }
 
-                if cameraScannerForSettings.availableCameras.isEmpty {
+                if settingsCameras.isEmpty {
                     HStack(spacing: 10) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 14))
@@ -164,7 +164,7 @@ struct SettingsView: View {
                 isOn: Binding(
                     get: { settings.selectedCameraID == AppSettings.autoCameraID },
                     set: { newValue in
-                        settings.selectedCameraID = newValue ? AppSettings.autoCameraID : (cameraScannerForSettings.availableCameras.first?.id ?? AppSettings.autoCameraID)
+                        settings.selectedCameraID = newValue ? AppSettings.autoCameraID : (settingsCameras.first?.id ?? AppSettings.autoCameraID)
                     }
                 )
             )
@@ -180,7 +180,7 @@ struct SettingsView: View {
                 .lineSpacing(3)
         }
         .onAppear {
-            cameraScannerForSettings.refreshAvailableCameras()
+            settingsCameras = CameraScanner.discoverCameras()
         }
     }
 

@@ -37,13 +37,14 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
 
     // MARK: - Camera Discovery
 
-    /// Scan the system for all video capture devices, including Continuity Camera (iPhone).
-    func refreshAvailableCameras() {
+    /// Static version: scan the system for all video capture devices.
+    /// Used by SettingsView to avoid creating a full CameraScanner instance.
+    static func discoverCameras() -> [CameraDevice] {
         let discovery = AVCaptureDevice.DiscoverySession(
             deviceTypes: [
                 .builtInWideAngleCamera,
-                .external,               // USB / Thunderbolt webcams
-                .continuityCamera,       // iPhone via Continuity Camera (macOS 13+)
+                .external,
+                .continuityCamera,
             ],
             mediaType: .video,
             position: .unspecified
@@ -53,7 +54,6 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         var cameras: [CameraDevice] = []
 
         for device in discovery.devices {
-            // Deduplicate (some devices appear in multiple discovery types)
             guard !seen.contains(device.uniqueID) else { continue }
             seen.insert(device.uniqueID)
 
@@ -68,6 +68,12 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             ))
         }
 
+        return cameras
+    }
+
+    /// Scan the system for all video capture devices, including Continuity Camera (iPhone).
+    func refreshAvailableCameras() {
+        let cameras = Self.discoverCameras()
         DispatchQueue.main.async {
             self.availableCameras = cameras
         }
@@ -190,46 +196,49 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     func captureOutput(_ output: AVCaptureOutput,
                        didOutput sampleBuffer: CMSampleBuffer,
                        from connection: AVCaptureConnection) {
-        guard scanningEnabled, !isProcessing else { return }
-        isProcessing = true
+        // Wrap guard + set in one async block to avoid race between check and assignment
+        processingQueue.async { [self] in
+            guard scanningEnabled, !isProcessing else { return }
+            isProcessing = true
 
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-            isProcessing = false
-            return
-        }
-
-        // Derive orientation from connection instead of hardcoding .right
-        let orientation: CGImagePropertyOrientation
-        let angle = connection.videoRotationAngle
-        switch angle {
-        case 315..<360, 0..<45:   orientation = .up      // 0° landscape
-        case 45..<135:            orientation = .right    // 90° portrait
-        case 135..<225:           orientation = .down     // 180° landscape flipped
-        case 225..<315:           orientation = .left     // 270° portrait flipped
-        default:                  orientation = .up
-        }
-
-        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
-
-        let request = VNDetectBarcodesRequest { [weak self] request, error in
-            guard let self else { return }
-            defer { self.isProcessing = false }
-
-            guard self.scanningEnabled, error == nil,
-                  let results = request.results as? [VNBarcodeObservation],
-                  let firstCode = results.first?.payloadStringValue else {
+            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+                isProcessing = false
                 return
             }
 
-            let previousCode = self.lastDetectedCode
-            if firstCode != previousCode {
-                DispatchQueue.main.async {
-                    guard self.scanningEnabled else { return }
-                    self.lastDetectedCode = firstCode
+            // Derive orientation from connection instead of hardcoding .right
+            let orientation: CGImagePropertyOrientation
+            let angle = connection.videoRotationAngle
+            switch angle {
+            case 315..<360, 0..<45:   orientation = .up      // 0° landscape
+            case 45..<135:            orientation = .right    // 90° portrait
+            case 135..<225:           orientation = .down     // 180° landscape flipped
+            case 225..<315:           orientation = .left     // 270° portrait flipped
+            default:                  orientation = .up
+            }
+
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
+
+            let request = VNDetectBarcodesRequest { [weak self] request, error in
+                guard let self else { return }
+                defer { self.isProcessing = false }
+
+                guard self.scanningEnabled, error == nil,
+                      let results = request.results as? [VNBarcodeObservation],
+                      let firstCode = results.first?.payloadStringValue else {
+                    return
+                }
+
+                let previousCode = self.lastDetectedCode
+                if firstCode != previousCode {
+                    DispatchQueue.main.async {
+                        guard self.scanningEnabled else { return }
+                        self.lastDetectedCode = firstCode
+                    }
                 }
             }
-        }
 
-        try? handler.perform([request])
+            try? handler.perform([request])
+        }
     }
 }
