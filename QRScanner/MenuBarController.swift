@@ -159,7 +159,14 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         window.title = "QRScanner 设置"
         window.setContentSize(NSSize(width: 580, height: 420))
         window.minSize = NSSize(width: 500, height: 360)
-        window.styleMask = [.titled, .closable, .resizable]
+        // Let the split view extend through the titlebar.  This keeps the
+        // standard window controls visually within the sidebar, matching the
+        // macOS 26 Settings-style liquid glass layout.
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unifiedCompact
+        window.titlebarSeparatorStyle = .none
         window.isReleasedWhenClosed = false
         window.delegate = self
 
