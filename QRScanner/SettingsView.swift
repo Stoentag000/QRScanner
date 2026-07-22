@@ -125,6 +125,13 @@ struct SettingsView: View {
                 subtitle: "检测到码后自动复制到剪贴板",
                 isOn: $settings.autoCopy
             )
+
+            settingToggle(
+                icon: "clock.arrow.circlepath",
+                title: "保存扫描历史",
+                subtitle: "关闭后会立即删除本机已有的扫描记录",
+                isOn: $settings.historyEnabled
+            )
         }
     }
 
@@ -174,7 +181,7 @@ struct SettingsView: View {
 
             sectionTitle("提示")
 
-            Text("连接 iPhone 或外接摄像头后，需要重新打开此面板刷新设备列表。Continuity Camera 需要 macOS Ventura 或更高版本，且设备登录同一 Apple ID。")
+            Text("连接 iPhone 或外接摄像头后，设备列表会自动刷新。Continuity Camera 需要 macOS Ventura 或更高版本，且设备登录同一 Apple ID。")
                 .font(.system(size: 10, design: .rounded))
                 .foregroundStyle(.tertiary)
                 .lineSpacing(3)

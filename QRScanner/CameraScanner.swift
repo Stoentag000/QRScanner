@@ -3,75 +3,63 @@ import Vision
 import Foundation
 import Combine
 
-// MARK: - Camera Device Model
-
 struct CameraDevice: Identifiable, Hashable {
-    let id: String          // AVCaptureDevice uniqueID
-    let name: String        // Localized name
+    let id: String
+    let name: String
     let isContinuityCamera: Bool
     let isExternal: Bool
 
     var icon: String {
         if isContinuityCamera { return "iphone" }
         if isExternal { return "video" }
-        return "web.camera"     // built-in
+        return "web.camera"
     }
 }
 
+/// Owns all AVCaptureSession work on `sessionQueue`.
+/// Vision processing is performed on that same serial queue, so frames cannot race each other.
 final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let captureSession = AVCaptureSession()
     @Published var lastDetectedCode: String?
     @Published var availableCameras: [CameraDevice] = []
     @Published var currentCameraID: String?
+    @Published var cameraError: String?
 
-    private let processingQueue = DispatchQueue(label: "scanner.queue", qos: .userInteractive)
-    private var isProcessing = false
+    private let sessionQueue = DispatchQueue(label: "com.qrscanner.camera-session", qos: .userInitiated)
     private var scanningEnabled = false
     private var sessionStarted = false
-    private weak var videoOutput: AVCaptureVideoDataOutput?
+    private var lastVisibleCode: String?
+    private var deviceObservers: [NSObjectProtocol] = []
 
     override init() {
         super.init()
         refreshAvailableCameras()
+        observeCameraChanges()
     }
 
-    // MARK: - Camera Discovery
+    deinit {
+        deviceObservers.forEach(NotificationCenter.default.removeObserver)
+    }
 
-    /// Static version: scan the system for all video capture devices.
-    /// Used by SettingsView to avoid creating a full CameraScanner instance.
     static func discoverCameras() -> [CameraDevice] {
         let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [
-                .builtInWideAngleCamera,
-                .external,
-                .continuityCamera,
-            ],
+            deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
             mediaType: .video,
             position: .unspecified
         )
 
         var seen = Set<String>()
-        var cameras: [CameraDevice] = []
-
-        for device in discovery.devices {
-            guard !seen.contains(device.uniqueID) else { continue }
-            seen.insert(device.uniqueID)
-
-            let isCC = device.deviceType == .continuityCamera
-            let isExt = device.deviceType == .external || device.deviceType == .continuityCamera
-
-            cameras.append(CameraDevice(
+        return discovery.devices.compactMap { device in
+            guard seen.insert(device.uniqueID).inserted else { return nil }
+            return CameraDevice(
                 id: device.uniqueID,
                 name: device.localizedName,
-                isContinuityCamera: isCC,
-                isExternal: isExt
-            ))
+                isContinuityCamera: device.deviceType == .continuityCamera,
+                isExternal: device.deviceType == .external || device.deviceType == .continuityCamera
+            )
         }
-
-        return cameras
     }
 
-    /// Scan the system for all video capture devices, including Continuity Camera (iPhone).
     func refreshAvailableCameras() {
         let cameras = Self.discoverCameras()
         DispatchQueue.main.async {
@@ -79,166 +67,139 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
         }
     }
 
-    /// Resolve a AVCaptureDevice from a camera ID string.
-    /// Falls back to the best available camera if the ID is invalid or "auto".
-    private func resolveDevice(for cameraID: String) -> AVCaptureDevice? {
-        if cameraID != AppSettings.autoCameraID {
-            if let device = AVCaptureDevice(uniqueID: cameraID) {
-                return device
+    func startRunning(cameraID: String? = nil) {
+        let targetID = cameraID ?? currentCameraID ?? AppSettings.autoCameraID
+        AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+            guard let self else { return }
+            guard granted else {
+                self.publishError("未获得摄像头权限。请在“系统设置 > 隐私与安全性 > 摄像头”中允许 QRScanner 使用摄像头。")
+                return
+            }
+            self.sessionQueue.async {
+                self.configureAndStart(cameraID: targetID)
             }
         }
+    }
 
-        // Auto-pick: prefer built-in front → built-in back → external → continuity camera
+    func stopRunning() {
+        sessionQueue.async {
+            self.scanningEnabled = false
+            self.lastVisibleCode = nil
+            if self.sessionStarted {
+                self.captureSession.stopRunning()
+                self.sessionStarted = false
+            }
+            self.publishDetectedCode(nil)
+        }
+    }
+
+    private func configureAndStart(cameraID: String) {
+        captureSession.beginConfiguration()
+
+        if sessionStarted {
+            captureSession.stopRunning()
+            sessionStarted = false
+        }
+        captureSession.inputs.forEach(captureSession.removeInput)
+        captureSession.outputs.forEach(captureSession.removeOutput)
+        captureSession.sessionPreset = .high
+
+        guard let device = resolveDevice(for: cameraID) else {
+            captureSession.commitConfiguration()
+            scanningEnabled = false
+            publishError("未检测到可用摄像头。")
+            return
+        }
+        guard let input = try? AVCaptureDeviceInput(device: device), captureSession.canAddInput(input) else {
+            captureSession.commitConfiguration()
+            scanningEnabled = false
+            publishError("无法打开“\(device.localizedName)”。")
+            return
+        }
+
+        let output = AVCaptureVideoDataOutput()
+        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        output.alwaysDiscardsLateVideoFrames = true
+        guard captureSession.canAddOutput(output) else {
+            captureSession.commitConfiguration()
+            scanningEnabled = false
+            publishError("无法配置摄像头输出。")
+            return
+        }
+
+        captureSession.addInput(input)
+        captureSession.addOutput(output)
+        output.setSampleBufferDelegate(self, queue: sessionQueue)
+
+        captureSession.commitConfiguration()
+        lastVisibleCode = nil
+        scanningEnabled = true
+        sessionStarted = true
+        captureSession.startRunning()
+        DispatchQueue.main.async {
+            self.currentCameraID = device.uniqueID
+            self.cameraError = nil
+            self.lastDetectedCode = nil
+        }
+    }
+
+    private func resolveDevice(for cameraID: String) -> AVCaptureDevice? {
+        if cameraID != AppSettings.autoCameraID, let device = AVCaptureDevice(uniqueID: cameraID) {
+            return device
+        }
         let discovery = AVCaptureDevice.DiscoverySession(
             deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera],
             mediaType: .video,
             position: .unspecified
         )
-
         let preferred: [AVCaptureDevice.DeviceType] = [.builtInWideAngleCamera, .external, .continuityCamera]
-        for type in preferred {
-            if let device = discovery.devices.first(where: { $0.deviceType == type }) {
-                return device
-            }
-        }
-        return discovery.devices.first
+        return preferred.compactMap { type in discovery.devices.first { $0.deviceType == type } }.first
+            ?? discovery.devices.first
     }
 
-    // MARK: - Session Configuration
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard scanningEnabled, let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-    /// (Re)configure the capture session for the given camera ID.
-    /// If the session is already running, it will be reconfigured live.
-    func configure(with cameraID: String) {
-        let wasRunning = sessionStarted
-
-        if wasRunning {
-            scanningEnabled = false
-            captureSession.stopRunning()
-            sessionStarted = false
+        let orientation: CGImagePropertyOrientation
+        switch connection.videoRotationAngle {
+        case 315..<360, 0..<45: orientation = .up
+        case 45..<135: orientation = .right
+        case 135..<225: orientation = .down
+        case 225..<315: orientation = .left
+        default: orientation = .up
         }
 
-        // Remove existing inputs
-        captureSession.beginConfiguration()
-        for input in captureSession.inputs {
-            captureSession.removeInput(input)
-        }
-        captureSession.sessionPreset = .high
+        let request = VNDetectBarcodesRequest()
+        request.symbologies = ImageCodeDetector.supportedSymbologies
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
 
-        guard let device = resolveDevice(for: cameraID),
-              let input = try? AVCaptureDeviceInput(device: device),
-              captureSession.canAddInput(input) else {
-            captureSession.commitConfiguration()
-            return
-        }
+        guard (try? handler.perform([request])) != nil else { return }
+        let code = request.results?.compactMap(\.payloadStringValue).first
 
-        captureSession.addInput(input)
+        // Clearing the visible value when the code leaves the frame allows the same code to be scanned again.
+        guard code != lastVisibleCode else { return }
+        lastVisibleCode = code
+        publishDetectedCode(code)
+    }
 
-        // Add output if not already present
-        if captureSession.outputs.isEmpty {
-            let output = AVCaptureVideoDataOutput()
-            output.videoSettings = [
-                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
-            ]
-            output.alwaysDiscardsLateVideoFrames = true
-
-            guard captureSession.canAddOutput(output) else {
-                captureSession.commitConfiguration()
-                return
-            }
-            captureSession.addOutput(output)
-            output.setSampleBufferDelegate(self, queue: processingQueue)
-            self.videoOutput = output
-        }
-
-        captureSession.commitConfiguration()
-
+    private func publishDetectedCode(_ code: String?) {
         DispatchQueue.main.async {
-            self.currentCameraID = device.uniqueID
-        }
-
-        if wasRunning {
-            sessionStarted = true
-            captureSession.startRunning()
-            scanningEnabled = true
-            processingQueue.sync { isProcessing = false }
+            self.lastDetectedCode = code
         }
     }
 
-    // MARK: - Start / Stop
-
-    func startRunning(cameraID: String? = nil) {
-        let targetID = cameraID ?? currentCameraID ?? AppSettings.autoCameraID
-
-        // If switching cameras or first run, (re)configure
-        if currentCameraID != targetID || captureSession.inputs.isEmpty {
-            configure(with: targetID)
+    private func publishError(_ message: String) {
+        DispatchQueue.main.async {
+            self.cameraError = message
         }
-
-        if !sessionStarted {
-            sessionStarted = true
-            captureSession.startRunning()
-            processingQueue.sync { isProcessing = false }
-        }
-        scanningEnabled = true
     }
 
-    func stopRunning() {
-        scanningEnabled = false
-        if sessionStarted {
-            sessionStarted = false
-            captureSession.stopRunning()
-        }
-        processingQueue.sync { isProcessing = false }
-    }
-
-    // MARK: - AVCaptureVideoDataOutputSampleBufferDelegate
-
-    func captureOutput(_ output: AVCaptureOutput,
-                       didOutput sampleBuffer: CMSampleBuffer,
-                       from connection: AVCaptureConnection) {
-        // Wrap guard + set in one async block to avoid race between check and assignment
-        processingQueue.async { [self] in
-            guard scanningEnabled, !isProcessing else { return }
-            isProcessing = true
-
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
-                isProcessing = false
-                return
-            }
-
-            // Derive orientation from connection instead of hardcoding .right
-            let orientation: CGImagePropertyOrientation
-            let angle = connection.videoRotationAngle
-            switch angle {
-            case 315..<360, 0..<45:   orientation = .up      // 0° landscape
-            case 45..<135:            orientation = .right    // 90° portrait
-            case 135..<225:           orientation = .down     // 180° landscape flipped
-            case 225..<315:           orientation = .left     // 270° portrait flipped
-            default:                  orientation = .up
-            }
-
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: orientation, options: [:])
-
-            let request = VNDetectBarcodesRequest { [weak self] request, error in
-                guard let self else { return }
-                defer { self.isProcessing = false }
-
-                guard self.scanningEnabled, error == nil,
-                      let results = request.results as? [VNBarcodeObservation],
-                      let firstCode = results.first?.payloadStringValue else {
-                    return
-                }
-
-                let previousCode = self.lastDetectedCode
-                if firstCode != previousCode {
-                    DispatchQueue.main.async {
-                        guard self.scanningEnabled else { return }
-                        self.lastDetectedCode = firstCode
-                    }
-                }
-            }
-
-            try? handler.perform([request])
+    private func observeCameraChanges() {
+        let center = NotificationCenter.default
+        for name in [AVCaptureDevice.wasConnectedNotification, AVCaptureDevice.wasDisconnectedNotification] {
+            deviceObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshAvailableCameras()
+            })
         }
     }
 }

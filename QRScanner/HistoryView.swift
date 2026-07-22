@@ -5,6 +5,7 @@ struct HistoryView: View {
     @ObservedObject var settings: AppSettings
     var onBack: () -> Void = {}
     @State private var copiedId: UUID?
+    @State private var showClearConfirmation = false
 
     var body: some View {
         ZStack {
@@ -23,6 +24,13 @@ struct HistoryView: View {
             }
         }
         .frame(width: 380, height: 480)
+        .preferredColorScheme(settings.theme.colorScheme)
+        .alert("清空扫描历史？", isPresented: $showClearConfirmation) {
+            Button("清空", role: .destructive) { history.clearAll() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("此操作会删除所有本地扫描记录，且无法撤销。")
+        }
     }
 
     // MARK: - Header
@@ -52,7 +60,7 @@ struct HistoryView: View {
             Spacer()
 
             if !history.entries.isEmpty {
-                Button(action: { history.clearAll() }) {
+                Button(action: { showClearConfirmation = true }) {
                     Text("清空")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.red)
@@ -143,8 +151,7 @@ struct HistoryView: View {
     // MARK: - Helpers
 
     private func copyEntry(_ entry: ScanEntry) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(entry.content, forType: .string)
+        _ = Clipboard.copy(entry.content)
         withAnimation(.easeInOut(duration: 0.15)) {
             copiedId = entry.id
         }

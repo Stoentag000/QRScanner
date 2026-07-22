@@ -72,6 +72,7 @@ struct ScannerView: View {
             }
         }
         .frame(width: 380, height: isCameraMode ? 500 : 460)
+        .preferredColorScheme(settings.theme.colorScheme)
         .onChange(of: isCameraMode) { _, newValue in
             if newValue {
                 scanLineY = 0
@@ -158,6 +159,10 @@ struct ScannerView: View {
             if let code = detectedCode {
                 codePopup(code)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            if let error = cameraScanner.cameraError {
+                cameraErrorOverlay(error)
             }
         }
         .padding(.horizontal, 16)
@@ -390,8 +395,7 @@ struct ScannerView: View {
     }
 
     private func copyToClipboard(_ code: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(code, forType: .string)
+        _ = Clipboard.copy(code)
         withAnimation {
             detectedCode = code
             copied = true
@@ -438,6 +442,9 @@ struct ScannerView: View {
                 }
 
                 if let first = codes.first {
+                    if self.settings.autoCopy {
+                        _ = Clipboard.copy(first)
+                    }
                     self.showDetectedCode(first)
                 }
 
@@ -463,7 +470,9 @@ struct ScannerView: View {
         if provider.hasItemConformingToTypeIdentifier("public.file-url") {
             provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
                 if let error = error {
-                    print("[QRScanner] loadItem error: \(error)")
+                    DispatchQueue.main.async {
+                        self.loadError = "无法读取拖入的文件：\(error.localizedDescription)"
+                    }
                     return
                 }
 
@@ -483,7 +492,9 @@ struct ScannerView: View {
                 }
 
                 guard let resolvedURL = url else {
-                    print("[QRScanner] Could not resolve dropped item to URL: \(String(describing: item))")
+                    DispatchQueue.main.async {
+                        self.loadError = "无法读取拖入的文件"
+                    }
                     return
                 }
 
@@ -719,6 +730,26 @@ struct ScannerView: View {
         .shadow(color: .black.opacity(0.15), radius: 16, y: 6)
     }
 
+    private func cameraErrorOverlay(_ message: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: "video.slash.fill")
+                .font(.system(size: 26))
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.system(size: 11, design: .rounded))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 18)
+            Button("重试") {
+                cameraScanner.startRunning(cameraID: settings.selectedCameraID)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.background.opacity(0.94), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
     // MARK: - Status Bar
 
     private var statusBar: some View {
@@ -736,7 +767,7 @@ struct ScannerView: View {
                         }
                     }
 
-                Text("\(currentCameraName) · 扫描中")
+                Text(cameraScanner.cameraError == nil ? "\(currentCameraName) · 扫描中" : "摄像头不可用")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
             } else {
@@ -781,5 +812,3 @@ struct CameraPreviewView: NSViewRepresentable {
         }
     }
 }
-
-

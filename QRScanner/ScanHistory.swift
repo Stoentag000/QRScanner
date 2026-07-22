@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import OSLog
 
 struct ScanEntry: Codable, Identifiable, Hashable {
     let id: UUID
@@ -24,6 +25,9 @@ final class ScanHistory: ObservableObject {
     @Published var entries: [ScanEntry] = []
 
     private let maxEntries = 200
+    private let settings: AppSettings
+    private var cancellables = Set<AnyCancellable>()
+    private let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "QRScanner", category: "ScanHistory")
     private var saveURL: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let folder = dir.appendingPathComponent("QRScanner", isDirectory: true)
@@ -31,11 +35,29 @@ final class ScanHistory: ObservableObject {
         return folder.appendingPathComponent("history.json")
     }
 
-    init() {
-        load()
+    init(settings: AppSettings) {
+        self.settings = settings
+        if settings.historyEnabled {
+            load()
+        }
+
+        settings.$historyEnabled
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] enabled in
+                guard let self else { return }
+                if enabled {
+                    self.load()
+                } else {
+                    self.entries.removeAll()
+                    self.deletePersistedHistory()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func add(_ content: String, source: ScanEntry.Source) {
+        guard settings.historyEnabled else { return }
         // Deduplicate: if same content exists, move it to top with updated time
         if let idx = entries.firstIndex(where: { $0.content == content }) {
             entries.remove(at: idx)
@@ -60,13 +82,35 @@ final class ScanHistory: ObservableObject {
     // MARK: - Persistence
 
     private func save() {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        try? data.write(to: saveURL, options: .atomic)
+        guard settings.historyEnabled else { return }
+        do {
+            let data = try JSONEncoder().encode(entries)
+            try data.write(to: saveURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        } catch {
+            logger.error("Failed to save scan history: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     private func load() {
-        guard let data = try? Data(contentsOf: saveURL),
-              let decoded = try? JSONDecoder().decode([ScanEntry].self, from: data) else { return }
-        entries = decoded
+        guard settings.historyEnabled else { return }
+        do {
+            let data = try Data(contentsOf: saveURL)
+            entries = try JSONDecoder().decode([ScanEntry].self, from: data)
+        } catch CocoaError.fileNoSuchFile {
+            entries = []
+        } catch {
+            logger.error("Failed to load scan history: \(error.localizedDescription, privacy: .public)")
+            entries = []
+        }
+    }
+
+    private func deletePersistedHistory() {
+        do {
+            try FileManager.default.removeItem(at: saveURL)
+        } catch CocoaError.fileNoSuchFile {
+            return
+        } catch {
+            logger.error("Failed to delete scan history: \(error.localizedDescription, privacy: .public)")
+        }
     }
 }

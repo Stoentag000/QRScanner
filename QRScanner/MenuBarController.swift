@@ -14,8 +14,8 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var rightClickMonitor: Any?
     private var keyMonitor: Any?
     private var scannerIsCameraMode = true  // Track scanner mode across reopen
-    let history = ScanHistory()
     let settings: AppSettings = .shared
+    lazy var history = ScanHistory(settings: settings)
 
     override init() {
         super.init()
@@ -83,14 +83,6 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
     private func showPopover(with view: some View) {
         let contentVC = NSHostingController(rootView: view)
-        if let scheme = settings.theme.colorScheme {
-            contentVC.view.appearance = scheme == .dark
-                ? NSAppearance(named: .darkAqua)
-                : NSAppearance(named: .aqua)
-        } else {
-            contentVC.view.appearance = nil
-        }
-
         let popover = NSPopover()
         popover.contentSize = NSSize(width: 380, height: 500)
         popover.behavior = .transient
@@ -217,8 +209,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         history.add(code, source: .camera)
 
         if settings.autoCopy {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(code, forType: .string)
+            _ = Clipboard.copy(code)
         }
 
         if let button = statusItem.button {
@@ -284,8 +275,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
     @objc private func reCopy() {
         if let last = lastCopiedValue {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(last, forType: .string)
+            _ = Clipboard.copy(last)
         }
     }
 

@@ -30,6 +30,9 @@ final class AppSettings: ObservableObject {
     @Published var autoCopy: Bool {
         didSet { UserDefaults.standard.set(autoCopy, forKey: "autoCopy") }
     }
+    @Published var historyEnabled: Bool {
+        didSet { UserDefaults.standard.set(historyEnabled, forKey: "historyEnabled") }
+    }
     @Published var theme: AppTheme {
         didSet { UserDefaults.standard.set(theme.rawValue, forKey: "theme") }
     }
@@ -61,6 +64,7 @@ final class AppSettings: ObservableObject {
     init() {
         self.soundEnabled = UserDefaults.standard.object(forKey: "soundEnabled") as? Bool ?? true
         self.autoCopy = UserDefaults.standard.object(forKey: "autoCopy") as? Bool ?? true
+        self.historyEnabled = UserDefaults.standard.object(forKey: "historyEnabled") as? Bool ?? true
         if let raw = UserDefaults.standard.string(forKey: "theme"),
            let saved = AppTheme(rawValue: raw) {
             self.theme = saved

@@ -3,6 +3,9 @@ import AppKit
 
 /// 从静态图片中检测 QR 码 / 条形码
 enum ImageCodeDetector {
+    static let supportedSymbologies: [VNBarcodeSymbology] = [
+        .qr, .ean8, .ean13, .code128, .code39, .upce, .aztec, .pdf417
+    ]
 
     /// 返回检测到的所有码值（去重）
     static func detectCodes(in image: NSImage) -> [String] {
@@ -11,7 +14,7 @@ enum ImageCodeDetector {
         }
 
         let request = VNDetectBarcodesRequest()
-        request.symbologies = [.qr, .ean8, .ean13, .code128, .code39, .upce, .aztec, .pdf417]
+        request.symbologies = supportedSymbologies
 
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
 
