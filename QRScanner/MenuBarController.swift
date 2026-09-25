@@ -104,10 +104,16 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         guard let scanner = cameraScanner else { return }
 
         // 通过 Combine 监听 @Published 统一处理检测结果
+        //
+        // ⚠️ 去重必须在 compactMap 之前：
+        // CameraScanner 在“码离开画面”时会发布 nil 以便同一码可再次识别，
+        // 帧序是 "A" → nil → "A"。如果先 compactMap 再 removeDuplicates，
+        // nil 被丢掉后两次 "A" 会被误判为重复，导致第二次扫描不复制/不记录/不响铃。
+        // 在 Optional 上去重，让 nil 参与比较，即可放行合法的重复扫描。
         scanner.$lastDetectedCode
+            .removeDuplicates()
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
-            .removeDuplicates()
             .sink { [weak self] code in
                 self?.handleDetectedCode(code)
             }

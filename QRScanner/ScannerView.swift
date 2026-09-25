@@ -395,11 +395,13 @@ struct ScannerView: View {
     }
 
     private func copyToClipboard(_ code: String) {
-        _ = Clipboard.copy(code)
+        // 只有写入剪贴板真正成功才显示“已复制”，避免假复制提示
+        let succeeded = Clipboard.copy(code)
         withAnimation {
             detectedCode = code
-            copied = true
+            copied = succeeded
         }
+        guard succeeded else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             withAnimation { copied = false }
         }
