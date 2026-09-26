@@ -41,6 +41,10 @@ final class AppSettings: ObservableObject {
     }
     @Published var launchAtLoginEnabled: Bool {
         didSet {
+            // didSet fires even when re-assigning the same value. Without this
+            // guard a failed register/unregister would revert, re-enter didSet,
+            // fail again, and loop forever.
+            guard !isRevertingLaunchAtLogin else { return }
             if #available(macOS 13.0, *) {
                 do {
                     if launchAtLoginEnabled {
@@ -49,14 +53,15 @@ final class AppSettings: ObservableObject {
                         try SMAppService.mainApp.unregister()
                     }
                 } catch {
-                    // Revert on failure
-                    DispatchQueue.main.async {
-                        self.launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
-                    }
+                    isRevertingLaunchAtLogin = true
+                    launchAtLoginEnabled = (SMAppService.mainApp.status == .enabled)
+                    isRevertingLaunchAtLogin = false
                 }
             }
         }
     }
+
+    private var isRevertingLaunchAtLogin = false
 
     /// nil = use selectedCameraID; "auto" = pick best available
     static let autoCameraID = "auto"

@@ -14,6 +14,8 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var rightClickMonitor: Any?
     private var keyMonitor: Any?
     private var scannerIsCameraMode = true  // Track scanner mode across reopen
+    private var statusIconRestoreWorkItem: DispatchWorkItem?
+    private static let statusIconSymbol = "qrcode.viewfinder"
     let settings: AppSettings = .shared
     lazy var history = ScanHistory(settings: settings)
 
@@ -37,7 +39,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
         guard let button = statusItem.button else { return }
 
-        button.image = NSImage(systemSymbolName: "qrcode.viewfinder",
+        button.image = NSImage(systemSymbolName: Self.statusIconSymbol,
                                accessibilityDescription: "QRScanner")
         button.target = self
         button.action = #selector(handleClick(_:))
@@ -105,12 +107,18 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
 
         // 通过 Combine 监听 @Published 统一处理检测结果
         //
+        // ⚠️ dropFirst 必须最先：
+        // @Published 订阅时会立刻重放当前值。若上次扫码结果还留在
+        // lastDetectedCode 里（stopRunning 异步清 nil 尚未完成），重开面板
+        // 会把旧码再处理一遍（重复历史/复制/响铃）。
+        //
         // ⚠️ 去重必须在 compactMap 之前：
         // CameraScanner 在“码离开画面”时会发布 nil 以便同一码可再次识别，
         // 帧序是 "A" → nil → "A"。如果先 compactMap 再 removeDuplicates，
         // nil 被丢掉后两次 "A" 会被误判为重复，导致第二次扫描不复制/不记录/不响铃。
         // 在 Optional 上去重，让 nil 参与比较，即可放行合法的重复扫描。
         scanner.$lastDetectedCode
+            .dropFirst()
             .removeDuplicates()
             .compactMap { $0 }
             .receive(on: DispatchQueue.main)
@@ -136,7 +144,14 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         )
 
         showPopover(with: scannerView)
-        cameraScanner?.startRunning(cameraID: settings.selectedCameraID)
+        // Only start the camera in camera mode. Starting unconditionally then
+        // stopping from ScannerView.onAppear races with requestAccess and can
+        // leave the session running (and scanning) while the UI shows image mode.
+        if scannerIsCameraMode {
+            cameraScanner?.startRunning(cameraID: settings.selectedCameraID)
+        } else {
+            cameraScanner?.stopRunning()
+        }
     }
 
     // MARK: - Scanner Cleanup
@@ -226,12 +241,19 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         }
 
         if let button = statusItem.button {
-            let origImage = button.image
+            // Cancel any pending restore and always reset to the known base
+            // symbol. Capturing button.image and restoring it later breaks when
+            // two codes arrive within the delay: the second capture is already
+            // the checkmark, so the icon sticks on "Copied".
+            statusIconRestoreWorkItem?.cancel()
             button.image = NSImage(systemSymbolName: "checkmark.circle.fill",
                                    accessibilityDescription: "Copied")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
-                button.image = origImage
+            let work = DispatchWorkItem {
+                button.image = NSImage(systemSymbolName: Self.statusIconSymbol,
+                                       accessibilityDescription: "QRScanner")
             }
+            statusIconRestoreWorkItem = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: work)
         }
 
         if settings.soundEnabled {

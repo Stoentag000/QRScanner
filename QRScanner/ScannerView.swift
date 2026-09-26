@@ -33,6 +33,7 @@ struct ScannerView: View {
     @State private var showFilePicker = false
     @State private var loadError: String?
     @State private var isCameraMode: Bool = true
+    @State private var dismissWorkItem: DispatchWorkItem?
     @Environment(\.closeWindow) var closeWindow
 
     var body: some View {
@@ -181,6 +182,35 @@ struct ScannerView: View {
                 if isDragging {
                     // During drag: show consistent dragHighlight in both states
                     dragHighlight
+                } else if let error = loadError {
+                    // Errors take priority over a previous successful image —
+                    // otherwise the last result hides the failure.
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 28))
+                            .foregroundStyle(.orange)
+                        Text(error)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button(action: { showFilePicker = true }) {
+                            HStack(spacing: 5) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 10, weight: .medium))
+                                Text("重新选择")
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                            }
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 5)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(height: 300)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 } else if let image = uploadedImage {
                     // Show uploaded image with results
                     VStack(spacing: 10) {
@@ -229,33 +259,6 @@ struct ScannerView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                } else if let error = loadError {
-                    VStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 28))
-                            .foregroundStyle(.orange)
-                        Text(error)
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                        Button(action: { showFilePicker = true }) {
-                            HStack(spacing: 5) {
-                                Image(systemName: "arrow.clockwise")
-                                    .font(.system(size: 10, weight: .medium))
-                                Text("重新选择")
-                                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                            }
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 5)
-                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .frame(height: 300)
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                 } else {
@@ -380,18 +383,23 @@ struct ScannerView: View {
             detectedCode = code
             copied = settings.autoCopy
         }
-        if settings.autoCopy {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
-                withAnimation { self.detectedCode = nil; self.copied = false }
-            }
-        } else {
-            // Auto-dismiss after 3.5s if user hasn't tapped copy
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) {
-                if !self.copied {
-                    withAnimation { self.detectedCode = nil }
-                }
+        scheduleDismiss(after: settings.autoCopy ? 2.5 : 3.5)
+    }
+
+    /// Single dismiss timer for the code popup. A previous raw `asyncAfter`
+    /// could fire after a newer code was shown and clear it early; also the
+    /// old `if !copied` branch could leave the popup stuck when the user
+    /// copied near the end of the window.
+    private func scheduleDismiss(after delay: TimeInterval) {
+        dismissWorkItem?.cancel()
+        let work = DispatchWorkItem {
+            withAnimation {
+                self.detectedCode = nil
+                self.copied = false
             }
         }
+        dismissWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func copyToClipboard(_ code: String) {
@@ -402,17 +410,24 @@ struct ScannerView: View {
             copied = succeeded
         }
         guard succeeded else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            withAnimation { copied = false }
-        }
+        // Show the “已复制” state briefly, then dismiss the popup.
+        scheduleDismiss(after: 1.5)
     }
 
     // MARK: - Unified Image Import
+
+    /// Drop any previous result so a new load error is not hidden behind it.
+    private func showLoadError(_ message: String) {
+        loadError = message
+        uploadedImage = nil
+        imageCodes = []
+    }
 
     /// Single entry point: switch to image mode, load the file, detect codes.
     private func importImage(from url: URL) {
         if isCameraMode {
             isCameraMode = false
+            onModeChange(false)
             cameraScanner.stopRunning()
         }
 
@@ -426,7 +441,7 @@ struct ScannerView: View {
 
             guard let image = NSImage(contentsOf: url) else {
                 DispatchQueue.main.async {
-                    self.loadError = "无法加载图片，请检查文件格式或路径"
+                    self.showLoadError("无法加载图片，请检查文件格式或路径")
                 }
                 return
             }
@@ -459,8 +474,13 @@ struct ScannerView: View {
 
     /// fileImporter callback — extracts URL and forwards to importImage.
     private func handleFileImport(_ result: Result<[URL], Error>) {
-        if case .success(let urls) = result, let url = urls.first {
-            importImage(from: url)
+        switch result {
+        case .success(let urls):
+            if let url = urls.first {
+                importImage(from: url)
+            }
+        case .failure(let error):
+            showLoadError("无法读取文件：\(error.localizedDescription)")
         }
     }
 
@@ -473,7 +493,7 @@ struct ScannerView: View {
             provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
                 if let error = error {
                     DispatchQueue.main.async {
-                        self.loadError = "无法读取拖入的文件：\(error.localizedDescription)"
+                        self.showLoadError("无法读取拖入的文件：\(error.localizedDescription)")
                     }
                     return
                 }
@@ -495,7 +515,7 @@ struct ScannerView: View {
 
                 guard let resolvedURL = url else {
                     DispatchQueue.main.async {
-                        self.loadError = "无法读取拖入的文件"
+                        self.showLoadError("无法读取拖入的文件")
                     }
                     return
                 }
