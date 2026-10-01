@@ -94,12 +94,17 @@ final class CameraScanner: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     }
 
     private func configureAndStart(cameraID: String) {
-        captureSession.beginConfiguration()
-
+        // AVCaptureSession forbids stopRunning between beginConfiguration and
+        // commitConfiguration (raises NSGenericException). Stop the session
+        // before opening a configuration — switching cameras re-enters here
+        // while sessionStarted is already true.
         if sessionStarted {
             captureSession.stopRunning()
             sessionStarted = false
         }
+
+        captureSession.beginConfiguration()
+
         captureSession.inputs.forEach(captureSession.removeInput)
         captureSession.outputs.forEach(captureSession.removeOutput)
         captureSession.sessionPreset = .high
