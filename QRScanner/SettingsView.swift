@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import AVFoundation
+import ServiceManagement
 
 // MARK: - Settings Categories
 
@@ -194,7 +195,46 @@ struct SettingsView: View {
                     isOn: $settings.launchAtLoginEnabled
                 )
             }
+
+            if settings.launchAtLoginNeedsApproval {
+                launchApprovalBanner
+            }
         }
+    }
+
+    /// 开关已打开但系统要求用户手动放行时，必须明确告知，否则用户会以为自启已生效。
+    private var launchApprovalBanner: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.orange)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("QRScanner 已登记为登录项，但还需要你在「系统设置 > 通用 > 登录项」中允许，自启才会生效。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Button("打开登录项设置") {
+                    SMAppService.openSystemSettingsLoginItems()
+                }
+                .buttonStyle(.borderless)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(
+            Color.orange.opacity(0.08),
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.orange.opacity(0.12), lineWidth: 0.5)
+        )
     }
 
     private var themeRow: some View {

@@ -1,20 +1,6 @@
 import SwiftUI
 import AVFoundation
-import AudioToolbox
 import UniformTypeIdentifiers
-
-// MARK: - Environment Key for Close Action
-
-struct CloseWindowKey: EnvironmentKey {
-    static let defaultValue: () -> Void = {}
-}
-
-extension EnvironmentValues {
-    var closeWindow: () -> Void {
-        get { self[CloseWindowKey.self] }
-        set { self[CloseWindowKey.self] = newValue }
-    }
-}
 
 // MARK: - Scanner View
 
@@ -35,7 +21,6 @@ struct ScannerView: View {
     @State private var loadError: String?
     @State private var isCameraMode: Bool = true
     @State private var dismissWorkItem: DispatchWorkItem?
-    @Environment(\.closeWindow) var closeWindow
 
     var body: some View {
         ZStack {
@@ -91,7 +76,7 @@ struct ScannerView: View {
         }
         .onChange(of: cameraScanner.lastDetectedCode) { _, newValue in
             guard let code = newValue else { return }
-            showDetectedCode(code)
+            presentResult(code)
         }
         .fileImporter(
             isPresented: $showFilePicker,
@@ -379,12 +364,15 @@ struct ScannerView: View {
 
     // MARK: - Helpers
 
-    private func showDetectedCode(_ code: String) {
+    /// 展示识别结果：autoCopy 打开时顺带复制，`copied` 只反映真实结果——
+    /// 写剪贴板失败时仍给出手动复制按钮，不再无条件显示「已复制」。
+    private func presentResult(_ code: String) {
+        let didCopy = settings.autoCopy ? Clipboard.copy(code) : false
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) {
             detectedCode = code
-            copied = settings.autoCopy
+            copied = didCopy
         }
-        scheduleDismiss(after: settings.autoCopy ? 2.5 : 3.5)
+        scheduleDismiss(after: didCopy ? 2.5 : 3.5)
     }
 
     /// Single dismiss timer for the code popup. A previous raw `asyncAfter`
@@ -443,10 +431,7 @@ struct ScannerView: View {
         }
 
         if let first = codes.first {
-            if settings.autoCopy {
-                _ = Clipboard.copy(first)
-            }
-            showDetectedCode(first)
+            presentResult(first)
         }
 
         if !codes.isEmpty && settings.soundEnabled {
@@ -625,11 +610,20 @@ struct ScannerView: View {
 
     private var cameraPicker: some View {
         Menu {
+            Button {
+                selectCamera(AppSettings.autoCameraID)
+            } label: {
+                Label("自动选择", systemImage: "sparkles")
+            }
+
+            if !cameraScanner.availableCameras.isEmpty {
+                Divider()
+            }
+
             ForEach(cameraScanner.availableCameras) { camera in
-                Button(action: {
-                    settings.selectedCameraID = camera.id
-                    cameraScanner.startRunning(cameraID: camera.id)
-                }) {
+                Button {
+                    selectCamera(camera.id)
+                } label: {
                     Label(camera.name, systemImage: camera.icon)
                 }
             }
@@ -655,6 +649,12 @@ struct ScannerView: View {
         .fixedSize()
     }
 
+    /// 切换摄像头：同步设置项并按新选择重启会话。
+    private func selectCamera(_ id: String) {
+        settings.selectedCameraID = id
+        cameraScanner.startRunning(cameraID: id)
+    }
+
     private var currentCameraName: String {
         if let id = cameraScanner.currentCameraID,
            let camera = cameraScanner.availableCameras.first(where: { $0.id == id }) {
@@ -663,7 +663,9 @@ struct ScannerView: View {
         return "自动"
     }
 
+    /// 自动模式下用 sparkles 标记，否则切回「自动选择」在界面上看不出任何变化。
     private var currentCameraIcon: String {
+        guard settings.selectedCameraID != AppSettings.autoCameraID else { return "sparkles" }
         if let id = cameraScanner.currentCameraID,
            let camera = cameraScanner.availableCameras.first(where: { $0.id == id }) {
             return camera.icon
@@ -848,30 +850,6 @@ struct ScannerView: View {
             Text("⌘Q 退出")
                 .font(.system(size: 9, design: .rounded))
                 .foregroundStyle(.tertiary)
-        }
-    }
-}
-
-// MARK: - Camera Preview (AVCaptureSession → SwiftUI)
-
-struct CameraPreviewView: NSViewRepresentable {
-    let session: AVCaptureSession
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-
-        let previewLayer = AVCaptureVideoPreviewLayer(session: session)
-        previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-        view.layer?.addSublayer(previewLayer)
-
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        if let previewLayer = nsView.layer?.sublayers?.first as? AVCaptureVideoPreviewLayer {
-            previewLayer.frame = nsView.bounds
         }
     }
 }

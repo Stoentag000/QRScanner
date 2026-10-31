@@ -10,7 +10,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     private var settingsWindow: NSWindow?
     private var cameraScanner: CameraScanner?
     private var cancellables = Set<AnyCancellable>()
-    private var lastCopiedValue: String?
+    private var lastDetectedValue: String?
     private var rightClickMonitor: Any?
     private var keyMonitor: Any?
     private var scannerIsCameraMode = true  // Track scanner mode across reopen
@@ -233,12 +233,12 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     // MARK: - Detected Code Handling
 
     private func handleDetectedCode(_ code: String) {
-        lastCopiedValue = code
+        lastDetectedValue = code
         history.add(code, source: .camera)
 
-        if settings.autoCopy {
-            _ = Clipboard.copy(code)
-        }
+        // 复制由 ScannerView 执行：只有它能拿到 NSPasteboard 的返回值，并据此
+        // 决定弹窗显示「已复制」还是手动复制按钮。摄像头只在面板打开时运行，
+        // 因此不会出现「识别到了但面板不在、没人复制」的情况。
 
         if let button = statusItem.button {
             // Cancel any pending restore and always reset to the known base
@@ -274,7 +274,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
-        if let last = lastCopiedValue {
+        if let last = lastDetectedValue {
             menu.addItem(.separator())
             let preview = String(last.prefix(40)) + (last.count > 40 ? "…" : "")
             let copyItem = NSMenuItem(title: "上次: \(preview)", action: #selector(reCopy), keyEquivalent: "")
@@ -309,7 +309,7 @@ final class MenuBarController: NSObject, NSWindowDelegate, NSPopoverDelegate {
     }
 
     @objc private func reCopy() {
-        if let last = lastCopiedValue {
+        if let last = lastDetectedValue {
             _ = Clipboard.copy(last)
         }
     }

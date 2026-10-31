@@ -45,23 +45,30 @@ final class AppSettings: ObservableObject {
             // guard a failed register/unregister would revert, re-enter didSet,
             // fail again, and loop forever.
             guard !isRevertingLaunchAtLogin else { return }
-            if #available(macOS 13.0, *) {
-                do {
-                    if launchAtLoginEnabled {
-                        try SMAppService.mainApp.register()
-                    } else {
-                        try SMAppService.mainApp.unregister()
-                    }
-                } catch {
-                    isRevertingLaunchAtLogin = true
-                    launchAtLoginEnabled = (SMAppService.mainApp.status == .enabled)
-                    isRevertingLaunchAtLogin = false
-                }
-            }
+            applyLaunchAtLogin(launchAtLoginEnabled)
         }
     }
 
+    /// 系统把登录项判为「待批准」时，`register()` 会成功返回但服务并未生效，
+    /// 用户必须去系统设置里放行，界面需要把这件事讲明白。
+    @Published private(set) var launchAtLoginNeedsApproval = false
+
     private var isRevertingLaunchAtLogin = false
+
+    private func applyLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+        } catch {
+            isRevertingLaunchAtLogin = true
+            launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
+            isRevertingLaunchAtLogin = false
+        }
+        launchAtLoginNeedsApproval = SMAppService.mainApp.status == .requiresApproval
+    }
 
     /// nil = use selectedCameraID; "auto" = pick best available
     static let autoCameraID = "auto"
@@ -78,11 +85,10 @@ final class AppSettings: ObservableObject {
         }
         self.selectedCameraID = UserDefaults.standard.string(forKey: "selectedCameraID") ?? AppSettings.autoCameraID
 
-        // Sync launch-at-login state from SMAppService
-        if #available(macOS 13.0, *) {
-            self.launchAtLoginEnabled = SMAppService.mainApp.status == .enabled
-        } else {
-            self.launchAtLoginEnabled = false
-        }
+        // Sync launch-at-login state from SMAppService. 「待批准」时开关保持打开，
+        // 与「系统设置 > 通用 > 登录项」里显示的待批准状态一致。
+        let loginItemStatus = SMAppService.mainApp.status
+        self.launchAtLoginEnabled = (loginItemStatus == .enabled || loginItemStatus == .requiresApproval)
+        self.launchAtLoginNeedsApproval = (loginItemStatus == .requiresApproval)
     }
 }
