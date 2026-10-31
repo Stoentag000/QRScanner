@@ -474,7 +474,7 @@ struct SettingsView: View {
                 Image(systemName: "heart.fill")
                     .font(.system(size: 10))
                     .foregroundStyle(.pink.opacity(0.7))
-                Text("由 Stoentag000 开发，Xiaomi MiMo Claw 提供支持。")
+                Text("由 Stoentag000 开发，Mimo,GPT 提供支持。")
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }

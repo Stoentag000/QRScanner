@@ -1,6 +1,7 @@
 import SwiftUI
 import AVFoundation
 import AudioToolbox
+import UniformTypeIdentifiers
 
 // MARK: - Environment Key for Close Action
 
@@ -85,7 +86,7 @@ struct ScannerView: View {
                 cameraScanner.stopRunning()
             }
         }
-        .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
+        .onDrop(of: [.fileURL, .image], isTargeted: $isDragging) { providers in
             handleDrop(providers: providers)
         }
         .onChange(of: cameraScanner.lastDetectedCode) { _, newValue in
@@ -423,13 +424,39 @@ struct ScannerView: View {
         imageCodes = []
     }
 
+    /// 切到图片模式并停掉摄像头采集。
+    private func enterImageMode() {
+        guard isCameraMode else { return }
+        isCameraMode = false
+        onModeChange(false)
+        cameraScanner.stopRunning()
+    }
+
+    /// 识别结果落到界面的唯一入口（主线程）。
+    private func apply(image: NSImage, codes: [String]) {
+        loadError = nil
+        uploadedImage = image
+        imageCodes = codes
+
+        for code in codes {
+            history.add(code, source: .image)
+        }
+
+        if let first = codes.first {
+            if settings.autoCopy {
+                _ = Clipboard.copy(first)
+            }
+            showDetectedCode(first)
+        }
+
+        if !codes.isEmpty && settings.soundEnabled {
+            SoundPlayer.shared.play()
+        }
+    }
+
     /// Single entry point: switch to image mode, load the file, detect codes.
     private func importImage(from url: URL) {
-        if isCameraMode {
-            isCameraMode = false
-            onModeChange(false)
-            cameraScanner.stopRunning()
-        }
+        enterImageMode()
 
         // Background thread: file I/O + Vision detection
         DispatchQueue.global(qos: .userInitiated).async {
@@ -450,23 +477,29 @@ struct ScannerView: View {
 
             // Back to main thread for UI updates
             DispatchQueue.main.async {
-                self.loadError = nil
-                self.uploadedImage = image
-                self.imageCodes = codes
+                self.apply(image: image, codes: codes)
+            }
+        }
+    }
 
-                for code in codes {
-                    self.history.add(code, source: .image)
-                }
+    /// 从拖拽来源的位图数据识别：浏览器、照片等不会提供文件 URL。
+    private func importImage(from provider: NSItemProvider, typeIdentifier: String) {
+        enterImageMode()
 
-                if let first = codes.first {
-                    if self.settings.autoCopy {
-                        _ = Clipboard.copy(first)
+        provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, error in
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let image = data.flatMap({ NSImage(data: $0) }) else {
+                    let reason = error?.localizedDescription ?? "格式不受支持"
+                    DispatchQueue.main.async {
+                        self.showLoadError("无法读取拖入的图片：\(reason)")
                     }
-                    self.showDetectedCode(first)
+                    return
                 }
 
-                if !codes.isEmpty && self.settings.soundEnabled {
-                    SoundPlayer.shared.play()
+                let codes = ImageCodeDetector.detectCodes(in: image)
+
+                DispatchQueue.main.async {
+                    self.apply(image: image, codes: codes)
                 }
             }
         }
@@ -524,6 +557,14 @@ struct ScannerView: View {
                     self.importImage(from: resolvedURL)
                 }
             }
+            return true
+        }
+
+        // 浏览器、照片等来源只提供位图数据，没有文件 URL。挑一个能解码的具体图片类型。
+        if let imageType = provider.registeredTypeIdentifiers.first(where: {
+            UTType($0)?.conforms(to: .image) ?? false
+        }) {
+            importImage(from: provider, typeIdentifier: imageType)
             return true
         }
 
